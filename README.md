@@ -7,12 +7,31 @@
 If you find this project useful and would like to support its continued development, consider buying me a coffee!
 [![ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/lightningmods)
 
-## Official PS5 exploit website (auto loads etaHEN)
-- https://ps5jb.pages.dev/
+## Official PS5 exploit website 
+- https://tinyurl.com/PS5IPV6 (requires you to manually send the payload but has the best stability)
+- https://ps5jb.pages.dev/ (auto loads the payload for you, id recommand the IPV6 exploit over UMTX)
 
 ## Recommended self-host exploits
 - [Modified IPV6 exploit for etaHEN support](https://github.com/LightningMods/PS5-IPV6-Kernel-Exploit)
-- [Idlesauce UMTX](https://github.com/idlesauce/PS5-UMTX-Jailbreak/)
+
+## Payload PowerShell Script usage for Windows (send_payload.ps1)
+```
+.\send_payload.ps1 -Payload "C:\path\to\example.elf" -IP "192.168.xxx.xxx" -Port XXXX
+```
+
+**OR**
+
+```
+.\send_payload.ps1
+
+cmdlet send_payload.ps1 at command pipeline position 1
+Supply values for the following parameters:
+(Type !? for Help.)
+Payload: C:\path\to\example.elf
+IP: 192.168.xxx.xxx
+Port: XXXX
+```
+- Common Ports: SB elfldr 9021, exploit elfldr 9020
 
 ## Features
  - ★ etaHEN toolbox (debug settings replacement)
