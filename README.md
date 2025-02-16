@@ -15,6 +15,19 @@ If you find this project useful and would like to support its continued developm
 - [Modified IPV6 exploit for etaHEN support](https://github.com/LightningMods/PS5-IPV6-Kernel-Exploit)
 
 ## Payload PowerShell Script usage for Windows (send_payload.ps1)
+
+if you haven't already, you will need to either enable script execution globally via 
+
+```
+Set-ExecutionPolicy Bypass
+```
+in an admin PowerShell window or run the script with this command after replacing the script path
+
+```
+powershell.exe -ExecutionPolicy Bypass -File C:\Path\To\send_payload.ps1
+```
+**Script Usage**
+
 ```
 .\send_payload.ps1 -Payload "C:\path\to\example.elf" -IP "192.168.xxx.xxx" -Port XXXX
 ```
