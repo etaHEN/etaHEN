@@ -60,10 +60,10 @@ try {
     $tcpClient.Close() # Ensure the client is closed
     exit  # Exit the script if connection fails
   }
-  else {
-    $tcpClient.EndConnect($connectResult) # Complete the connection
-  }
-
+  
+  # Complete the connection
+  $tcpClient.EndConnect($connectResult)
+  
   # Get the network stream
   $stream = $tcpClient.GetStream()
 
@@ -88,7 +88,6 @@ try {
 catch {
   Write-Error "An error occurred: $($_.Exception.Message), press any key to exit"
   Write-Error $_.Exception.StackTrace
-  [System.Console]::ReadKey() | Out-Null
 }
 finally {
   # Ensure resources are cleaned up even if an error occurs
