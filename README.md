@@ -132,7 +132,7 @@ the service flow is as follows
 ## Jailbreaking an app (FPKG) using etaHEN (non-whitelist method, Network required)
 
 ```
-enum Commands : int8_t {
+enum Commands : int {
   INVALID_CMD = -1,
   ACTIVE_CMD = 0,
   LAUNCH_CMD,
