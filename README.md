@@ -55,6 +55,8 @@ Port: XXXX
  - [Toolbox] Plugin Menu and Plugin auto start menu
  - [Toolbox] External HDD Menu
  - [Toolbox] TestKit Menu  
+ - [Toolbox] Cheats Menu (WIP)
+ - [Toolbox] Disable toolbox auto start
  - [Toolbox] Blu-Ray license activation 
  - [Toolbox] etaHEN credits and supporters
  - [Toolbox] Auto open menu after etaHEN loads
@@ -78,15 +80,15 @@ Port: XXXX
  - *Optional* PS5Debug
  - Itemzflow intergration
  - *Optional* Discord RPC server on port 8000, click [here](https://github.com/jeroendev-one/ps5-rpc-client) for setup instructions 
+ - *Optional* Direct PKG installer V2 service with WebUI on http://PS5_IP:12800
  - *Optional* Direct PKG installer service on port 9090
 
 ## etaHEN SDK
-make your own custom plugins or payload-like ELFs for the HENV plugin via the [etaHEN SDK](https://github.com/lightningmods/etaHEN-SDK)
+make your own custom plugins via the [etaHEN SDK](https://github.com/lightningmods/etaHEN-SDK)
 More info [Here](https://github.com/LightningMods/etaHEN-SDK/blob/main/README.md)
 
 ## Upcoming features
  - [Toolbox] FPS Counter
- - [Toolbox] Cheats Menu
  - [Toolbox] change debug settings text
  - [Toolbox] On-Screen temps and other info (for retails)
  - More userland patches
@@ -100,12 +102,12 @@ and is automatically created when you run etaHEN for the first time
 #### Configuration Layout  (toolbox)
 | INI Key             | Description                                                 | Default value
 |---------------------|-------------------------------------------------------------|---------------------|                                        
-| `PS5Debug`           | 0 = disables PS5Debug (Sistr0) auto load 1 = enable PS5Debug auto load  | 1 (enabled)    |
+| `PS5Debug`           | 0 = disables PS5Debug (Sistr0) auto load 1 = enable PS5Debug auto load  | 0 (disabled)    |
 | `FTP`                | 0 = disables etaHEN built-in FTP 1 = enables it                | 1 (enabled)    |
 | `discord_rpc`	       | 0 = disables Discord RPC server 1 = enables it 	        | 0 (disabled)   | 
-| `testkit`	       | 0 = not testkit 1 = Real Testkits ONLY 	        | 0 (disabled)   | 
+| `toolbox_auto_start`	       | 0 = auto replaces debug settings 1 = OG Debug settings only 	        | 1 (enabled)   | 
 | `Allow_data_in_sandbox` | 0 = disables /data in an apps sandbox 1 = enables it 	        | 1 (enabled)   |
-| `DPI`	       | 0 = disables The Direct PKG Installer service 1 = enables it 	        | 1 (enabled)   | 
+| `DPI`/ `DPIv2`	       | 0 = disables The Direct PKG Installer service 1 = enables it 	        | 1 (DPIv2 enabled)   | 
 | `Klog`               | 0 = disables kernel logging, 1 = enables it                  | 0 (disabled)   |
 | `ALLOW_FTP_DEV_ACCESS` | 0 = disables FTP developer access, 1 = enables it           | 0 (disabled)   |
 | `StartOption`        | 0=None, 1=Home menu, 2=Settings 3=Toolbox, 4=itemzflow            | 0 (None)    |
