@@ -320,9 +320,9 @@ int pkginstall(const char* fullpath,
 
     log_info("AppInstUtil Initialized...");
 
-    sceAppInstUtilInstallByPackage = (int(*)(astruct_1*, SceAppInstallPkgInfo*, astruct_2*)) LOAD_FUNCTION_AND_CHECK(lib_appinstutil, "sceAppInstUtilInstallByPackage");
+    sceAppInstUtilInstallByPackage = (int(*)(MetaInfo*, SceAppInstallPkgInfo*, PlayGoInfo*)) LOAD_FUNCTION_AND_CHECK(lib_appinstutil, "sceAppInstUtilInstallByPackage");
 
-    astruct_2 arg3;
+    PlayGoInfo arg3;
     SceAppInstallPkgInfo pkg_info;
     memset(&arg3, 0, sizeof(arg3));
 
@@ -335,7 +335,7 @@ int pkginstall(const char* fullpath,
         strncpy(*arg3.content_ids, "", sizeof(content_id_t) - 1);
     }
 
-    astruct_1 arg1 = (astruct_1){
+    MetaInfo arg1 = (MetaInfo){
         .uri = fullpath,
         .ex_uri = "",
         .playgo_scenario_id = "",
