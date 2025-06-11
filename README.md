@@ -56,10 +56,14 @@ Port: XXXX
  - [Toolbox] External HDD Menu
  - [Toolbox] TestKit Menu  
  - [Toolbox] Cheats Menu (WIP)
+ - [Toolbox] Controller Shortcuts
+ - [Toolbox] PS5 webMAN Games menu
  - [Toolbox] Disable toolbox auto start
  - [Toolbox] Blu-Ray license activation 
  - [Toolbox] etaHEN credits and supporters
+ - [Toolbox] Custom debug settings text and icon
  - [Toolbox] Auto open menu after etaHEN loads
+ - [Toolbox] a number of different toolbox settings
  - React bundle (all FWs) & Self (only on 2.xx) FTP decryption Support
  - 2 seperate daemons for improved stability and reliability
  - the Util daemon willl be auto restarted by the main etaHEN daemon
@@ -89,7 +93,6 @@ More info [Here](https://github.com/LightningMods/etaHEN-SDK/blob/main/README.md
 
 ## Upcoming features
  - [Toolbox] FPS Counter
- - [Toolbox] change debug settings text
  - [Toolbox] On-Screen temps and other info (for retails)
  - More userland patches
  - Improved PS5 Game support (itemzflow)
@@ -114,6 +117,13 @@ and is automatically created when you run etaHEN for the first time
 | `Rest_Mode_Delay_Seconds` | Delay in seconds before patching shellui coming out rest mode             | 0 (no delay)   |
 | `Util_rest_kill`     | 0 = dont kill the util daemon during rest, 1 = Do kill it on rest     | 0 (disabled)   |
 | `Game_rest_kill`     | 0 = dont kill the open game during rest, 1 = Do kill it  on rest         | 0 (disabled)   |
+| `toolbox_auto_start`     | 0 = disabled, 1 = enabled        | 0 (disabled)   |
+| `DPI_v2`     | 0 = disabled, 1 = enabled         | 0 (disabled)   |
+| `disable_toolbox_auto_start_for_rest_mode`     | 0 = disabled, 1 = enabled         | 0 (disabled)   |
+| `Cheats_shortcut_opt`     | Multi-select option        | 0 (disabled)   |
+| `Toolbox_shortcut_opt`     | Multi-select option        | 0 (disabled)   |
+| `Games_shortcut_opt`     | Multi-select option        | 0 (disabled)   |
+| `Kstuff_shortcut_opt`     | Multi-select option        | 0 (disabled)   |
 
 ## DPI API details for tool creators 
 etaHEN's Direct PKG Installer currently is very simple and is considered a WIP
