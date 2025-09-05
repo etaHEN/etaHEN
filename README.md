@@ -52,21 +52,24 @@ Port: XXXX
  - [Toolbox] Install the Homebrew Store on the console
  - [Toolbox] ★Rest Mode Options
  - [Toolbox] Remote Play Menu
- - [Toolbox] Plugin Menu and Plugin auto start menu
+ - [Toolbox] Plugin / Payload ELF Menu with auto start options
  - [Toolbox] External HDD Menu
  - [Toolbox] TestKit Menu  
  - [Toolbox] Cheats Menu (WIP)
  - [Toolbox] Controller Shortcuts
  - [Toolbox] PS5 webMAN Games menu
+ - [Toolbox] Custom Game Options Menu
+ - [Toolbox] Display Title IDs on Home menu
  - [Toolbox] Disable toolbox auto start
  - [Toolbox] Blu-Ray license activation 
+ - [Toolbox] Disc auto eject for BD-J and LUA based exploits
  - [Toolbox] etaHEN credits and supporters
  - [Toolbox] Custom debug settings text and icon
  - [Toolbox] Auto open menu after etaHEN loads
  - [Toolbox] a number of different toolbox settings
  - React bundle (all FWs) & Self (only on 2.xx) FTP decryption Support
  - 2 seperate daemons for improved stability and reliability
- - the Util daemon willl be auto restarted by the main etaHEN daemon
+ - The Util daemon will be auto restarted by the main etaHEN daemon
  - Custom System Software version (custom System info)
  - kstuff for fself and fpkg support 
  - etaHEN log in /data/etaHEN
@@ -102,28 +105,33 @@ More info [Here](https://github.com/LightningMods/etaHEN-SDK/blob/main/README.md
 etaHEN's ini settings file can be found at `/data/etaHEN/config.ini` and can be accessed using the built-in FTP
 and is automatically created when you run etaHEN for the first time
 
-#### Configuration Layout  (toolbox)
-| INI Key             | Description                                                 | Default value
-|---------------------|-------------------------------------------------------------|---------------------|                                        
-| `PS5Debug`           | 0 = disables PS5Debug (Sistr0) auto load 1 = enable PS5Debug auto load  | 0 (disabled)    |
-| `FTP`                | 0 = disables etaHEN built-in FTP 1 = enables it                | 1 (enabled)    |
-| `discord_rpc`	       | 0 = disables Discord RPC server 1 = enables it 	        | 0 (disabled)   | 
-| `toolbox_auto_start`	       | 0 = auto replaces debug settings 1 = OG Debug settings only 	        | 1 (enabled)   | 
-| `Allow_data_in_sandbox` | 0 = disables /data in an apps sandbox 1 = enables it 	        | 1 (enabled)   |
-| `DPI`/ `DPIv2`	       | 0 = disables The Direct PKG Installer service 1 = enables it 	        | 1 (DPIv2 enabled)   | 
-| `Klog`               | 0 = disables kernel logging, 1 = enables it                  | 0 (disabled)   |
-| `ALLOW_FTP_DEV_ACCESS` | 0 = disables FTP developer access, 1 = enables it           | 0 (disabled)   |
-| `StartOption`        | 0=None, 1=Home menu, 2=Settings 3=Toolbox, 4=itemzflow            | 0 (None)    |
-| `Rest_Mode_Delay_Seconds` | Delay in seconds before patching shellui coming out rest mode             | 0 (no delay)   |
-| `Util_rest_kill`     | 0 = dont kill the util daemon during rest, 1 = Do kill it on rest     | 0 (disabled)   |
-| `Game_rest_kill`     | 0 = dont kill the open game during rest, 1 = Do kill it  on rest         | 0 (disabled)   |
-| `toolbox_auto_start`     | 0 = disabled, 1 = enabled        | 0 (disabled)   |
-| `DPI_v2`     | 0 = disabled, 1 = enabled         | 0 (disabled)   |
-| `disable_toolbox_auto_start_for_rest_mode`     | 0 = disabled, 1 = enabled         | 0 (disabled)   |
-| `Cheats_shortcut_opt`     | Multi-select option        | 0 (disabled)   |
-| `Toolbox_shortcut_opt`     | Multi-select option        | 0 (disabled)   |
-| `Games_shortcut_opt`     | Multi-select option        | 0 (disabled)   |
-| `Kstuff_shortcut_opt`     | Multi-select option        | 0 (disabled)   |
+| INI Key             | Description                                                 | Default value |
+|---------------------|-------------------------------------------------------------|---------------|
+| `PS5Debug`          | 0 = disables PS5Debug (Sistr0) auto load, 1 = enable PS5Debug auto load | 0 (disabled) |
+| `FTP`               | 0 = disables etaHEN built-in FTP, 1 = enables it          | 1 (enabled) |
+| `discord_rpc`       | 0 = disables Discord RPC server, 1 = enables it           | 0 (disabled) |
+| `toolbox_auto_start` | 0 = disabled, 1 = enabled                                 | 1 (enabled) |
+| `Allow_data_in_sandbox` | 0 = disables /data in an apps sandbox, 1 = enables it | 1 (enabled) |
+| `DPI`               | 0 = disables The Direct PKG Installer service, 1 = enables it | 0 (disabled) |
+| `DPI_v2`            | 0 = disables DPI version 2, 1 = enables it                | 0 (disabled) |
+| `Klog`              | 0 = disables kernel logging, 1 = enables it               | 0 (disabled) |
+| `ALLOW_FTP_DEV_ACCESS` | 0 = disables FTP developer access, 1 = enables it      | 0 (disabled) |
+| `StartOption`       | 0=None, 1=Home menu, 2=Settings, 3=Toolbox, 4=itemzflow  | 0 (None) |
+| `Rest_Mode_Delay_Seconds` | Delay in seconds before patching shellui coming out rest mode | 0 (no delay) |
+| `Util_rest_kill`    | 0 = don't kill the util daemon during rest, 1 = Do kill it on rest | 0 (disabled) |
+| `Game_rest_kill`    | 0 = don't kill the open game during rest, 1 = Do kill it on rest | 0 (disabled) |
+| `disable_toolbox_auto_start_for_rest_mode` | 0 = disabled, 1 = enabled | 0 (disabled) |
+| `libhijacker_cheats` | 0 = disables libhijacker cheats, 1 = enables it          | 0 (disabled) |
+| `launch_itemzflow`  | 0 = disabled, 1 = enables auto launch of itemzflow        | 0 (disabled) |
+| `testkit`           | 0 = disabled, 1 = enables testkit mode                    | 0 (disabled) |
+| `Display_tids`      | 0 = disabled, 1 = enables display of title IDs            | 0 (disabled) |
+| `APP_JB_Debug_Msg`  | 0 = disabled, 1 = enables app jailbreak debug messages    | 0 (disabled) |
+| `etaHEN_Game_Options` | 0 = disabled, 1 = enables etaHEN game options           | 1 (enabled) |
+| `auto_eject_disc`   | 0 = disabled, 1 = enables automatic disc ejection         | 0 (disabled) |
+| `Cheats_shortcut_opt` | Multi-select option for cheats shortcut                 | 0 (CHEATS_SC_OFF) |
+| `Toolbox_shortcut_opt` | Multi-select option for toolbox shortcut               | 0 (TOOLBOX_SC_OFF) |
+| `Games_shortcut_opt` | Multi-select option for games shortcut                   | 0 (GAMES_SC_OFF) |
+| `Kstuff_shortcut_opt` | Multi-select option for kstuff shortcut                | 0 (KSTUFF_SC_OFF) |
 
 ## DPI API details for tool creators 
 etaHEN's Direct PKG Installer currently is very simple and is considered a WIP
