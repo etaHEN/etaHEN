@@ -1,0 +1,23 @@
+#ifndef OFFSETS_1_02_H
+#define OFFSETS_1_02_H
+
+uint64_t g_sym_map_102[] = {
+    0x4ADF540,          // KERNEL_SYM_DMPML4I
+    0x4ADF544,          // KERNEL_SYM_DMPDPI
+    0x4ADF29C,          // KERNEL_SYM_PML4PML4I
+    0x4ADF2B8,          // KERNEL_SYM_PMAP_STORE
+    0x7980000,          // KERNEL_SYM_DATA_CAVE
+    0x0044000,          // KERNEL_SYM_CODE_CAVE
+    0x1CA25B0,          // KERNEL_SYM_PS4_SYSENT
+    0x1CAA7B0,          // KERNEL_SYM_PPR_SYSENT
+    0x0042000,          // KERNEL_SYM_GADGET_JMP_PTR_RSI
+};
+
+uint64_t g_patch_map_102[] = {
+    0x05A9740,          // KERNEL_PATCH_HAS_MMAP_SELF_CAPABILITY
+    0x05A9750,          // KERNEL_PATCH_IS_ALLOWED_TO_MMAP_SELF
+    0x09810C9,          // KERNEL_PATCH_MMAP_SELF_CALL_IS_LOADABLE
+    0x02F17A0,          // KERNEL_PATCH_SYS_GETGID
+};
+
+#endif // OFFSETS_1_02_H

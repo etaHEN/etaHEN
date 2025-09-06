@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual C++ Express 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pfdtool", "pfdtool.vcxproj", "{EB32CA53-14B0-4F80-A570-C37EAD8B64BD}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EB32CA53-14B0-4F80-A570-C37EAD8B64BD}.Debug|Win32.ActiveCfg = Debug|Win32
+		{EB32CA53-14B0-4F80-A570-C37EAD8B64BD}.Debug|Win32.Build.0 = Debug|Win32
+		{EB32CA53-14B0-4F80-A570-C37EAD8B64BD}.Release|Win32.ActiveCfg = Release|Win32
+		{EB32CA53-14B0-4F80-A570-C37EAD8B64BD}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,14 @@
+#ifndef PROC_H
+#define PROC_H
+
+#define PROC_OFFSET_P_PID       0x0BC
+#define PROC_OFFSET_P_VMSPACE   0x200
+#define PROC_OFFSET_P_COMM      0x564
+
+#define VM_ENTRY_OFFSET_NEXT    0x008
+#define VM_ENTRY_OFFSET_START   0x020
+#define VM_ENTRY_OFFSET_PROT    0x064
+#define VM_ENTRY_OFFSET_NAME    0x142
+
+
+#endif // PROC_H

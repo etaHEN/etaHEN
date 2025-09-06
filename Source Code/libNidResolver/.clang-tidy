@@ -1,0 +1,8 @@
+---
+Checks:          'bugprone-*,-bugprone-reserved-identifier,-bugprone-easily-swappable-parameters,clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-type-union-access,-cppcoreguidelines-avoid-c-arrays,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-non-private-member-variables-in-classes,-cppcoreguidelines-pro-bounds-array-to-pointer-decay,-cppcoreguidelines-pro-type-vararg,-cppcoreguidelines-pro-bounds-constant-array-index,performance*,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling'
+WarningsAsErrors: true
+HeaderFilterRegex: '.*'
+AnalyzeTemporaryDtors: false
+FormatStyle:     none
+...
+

@@ -1,0 +1,28 @@
+[
+{
+  "directory": "H:/libhijacker",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\CLANG_~1.EXE -IH:/libhijacker/libhijacker/../include -IH:/libhijacker/libhijacker/../libNidResolver/include -isystem H:/libhijacker/include -isystem H:/PS5SDK -isystem H:/PS5SDK/include --target=x86_64-freebsd-pc-elf -march=znver2 -DPPR -DPS5 -DPS5_FW_VERSION=0x320  -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112 -D__BSD_VISIBLE=1 -D__XSI_VISIBLE=500 -fno-builtin -nostdlib -Wall -fPIC  -fstack-protector-all -O3 -march=znver2 -Wall -Wextra -Wmove -Wmost -Werror -pedantic -pedantic-errors -fno-exceptions -std=gnu++20 -o libhijacker\\CMakeFiles\\hijacker.dir\\source\\backtrace.cpp.o -c H:\\libhijacker\\libhijacker\\source\\backtrace.cpp",
+  "file": "H:\\libhijacker\\libhijacker\\source\\backtrace.cpp",
+  "output": "libhijacker\\CMakeFiles\\hijacker.dir\\source\\backtrace.cpp.o"
+},
+{
+  "directory": "H:/libhijacker",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\CLANG_~1.EXE -IH:/libhijacker/libhijacker/../include -IH:/libhijacker/libhijacker/../libNidResolver/include -isystem H:/libhijacker/include -isystem H:/PS5SDK -isystem H:/PS5SDK/include --target=x86_64-freebsd-pc-elf -march=znver2 -DPPR -DPS5 -DPS5_FW_VERSION=0x320  -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112 -D__BSD_VISIBLE=1 -D__XSI_VISIBLE=500 -fno-builtin -nostdlib -Wall -fPIC  -fstack-protector-all -O3 -march=znver2 -Wall -Wextra -Wmove -Wmost -Werror -pedantic -pedantic-errors -fno-exceptions -std=gnu++20 -o libhijacker\\CMakeFiles\\hijacker.dir\\source\\dbg.cpp.o -c H:\\libhijacker\\libhijacker\\source\\dbg.cpp",
+  "file": "H:\\libhijacker\\libhijacker\\source\\dbg.cpp",
+  "output": "libhijacker\\CMakeFiles\\hijacker.dir\\source\\dbg.cpp.o"
+},
+{
+  "directory": "H:/libhijacker",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\CLANG_~1.EXE -IH:/libhijacker/libhijacker/../include -IH:/libhijacker/libhijacker/../libNidResolver/include -isystem H:/libhijacker/include -isystem H:/PS5SDK -isystem H:/PS5SDK/include --target=x86_64-freebsd-pc-elf -march=znver2 -DPPR -DPS5 -DPS5_FW_VERSION=0x320  -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112 -D__BSD_VISIBLE=1 -D__XSI_VISIBLE=500 -fno-builtin -nostdlib -Wall -fPIC  -fstack-protector-all -O3 -march=znver2 -Wall -Wextra -Wmove -Wmost -Werror -pedantic -pedantic-errors -fno-exceptions -std=gnu++20 -o libhijacker\\CMakeFiles\\hijacker.dir\\source\\elf\\elf.cpp.o -c H:\\libhijacker\\libhijacker\\source\\elf\\elf.cpp",
+  "file": "H:\\libhijacker\\libhijacker\\source\\elf\\elf.cpp",
+  "output": "libhijacker\\CMakeFiles\\hijacker.dir\\source\\elf\\elf.cpp.o"
+},
+{
+  "directory": "H:/libhijacker",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\CLANG_~1.EXE -IH:/libhijacker/libhijacker/../include -IH:/libhijacker/libhijacker/../libNidResolver/include -isystem H:/libhijacker/include -isystem H:/PS5SDK -isystem H:/PS5SDK/include --target=x86_64-freebsd-pc-elf -march=znver2 -DPPR -DPS5 -DPS5_FW_VERSION=0x320  -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112 -D__BSD_VISIBLE=1 -D__XSI_VISIBLE=500 -fno-builtin -nostdlib -Wall -fPIC  -fstack-protector-all -O3 -march=znver2 -Wall -Wextra -Wmove -Wmost -Werror -pedantic -pedantic-errors -fno-exceptions -std=gnu++20 -o libhijacker\\CMakeFiles\\hijacker.dir\\source\\hijacker.cpp.o -c H:\\libhijacker\\libhijacker\\source\\hijacker.cpp",
+  "file": "H:\\libhijacker\\libhijacker\\source\\hijacker.cpp",
+  "output": "libhijacker\\CMakeFiles\\hijacker.dir\\source\\hijacker.cpp.o"
+},
+{
+  "directory": "H:/libhijacker",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\CLANG_~1.EXE -IH:/libhijacker/libhijacker/../include -IH:/libhijacker/libhijacker/../libNidResolver/include -isystem H:/libhijacker/include -isystem H:/PS5SDK -isystem H:/PS5SDK/include --target=x86_64-freebsd-pc-elf -march=znver2 -DPPR -DPS5 -DPS5_FW_VERSION=0x320  -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112 -D__BSD_VISIBLE=1 -D__XSI_VISIBLE=500 -fno-builtin -nostdlib -Wall -fPIC  -fstack-protector-all -O3 -march=znver2 -Wall -Wextra -Wmove -Wmost -Werror -pedantic -pedantic-errors -fno-exceptions -std=gnu++20 -o libhijacker\\CMakeFiles\\hijacker.dir\\source\\kernel.cpp.o -c H:\\libhijacker\\libhijacker\\source\\kernel.cpp

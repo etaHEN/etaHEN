@@ -1,0 +1,43 @@
+cmake_minimum_required(VERSION 3.20)
+
+if(DEFINED CMAKE_CROSSCOMPILING)
+    set_property(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)
+    return()
+endif()
+
+set(TOOLCHAIN_PATH "${CMAKE_CURRENT_LIST_DIR}")
+#set(CMAKE_MODULE_PATH  "${TOOLCHAIN_PATH}/cmake/Modules")
+
+
+set(CMAKE_SYSTEM_NAME FreeBSD)
+set(CMAKE_SYSTEM_VERSION 11)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
+
+
+#set(UNIX 1)
+set(PS5 1)
+set(CMAKE_SYSROOT "${TOOLCHAIN_PATH}")
+
+set(CMAKE_C_STANDARD_DEFAULT 17)
+set(CMAKE_CXX_STANDARD_DEFAULT 20)
+
+
+set(TOOLCHAIN_TRIPLE x86_64-pc-freebsd12-elf)
+
+set(CMAKE_ASM_COMPILER clang)
+set(CMAKE_ASM_COMPILER_TARGET ${TOOLCHAIN_TRIPLE})
+set(CMAKE_C_COMPILER   clang)
+set(CMAKE_C_COMPILER_TARGET   ${TOOLCHAIN_TRIPLE})
+set(CMAKE_CXX_COMPILER clang++)
+set(CMAKE_CXX_COMPILER_TARGET ${TOOLCHAIN_TRIPLE})
+
+set(CMAKE_ASM_FLAGS_INIT "-fno-exceptions")
+set(CMAKE_C_FLAGS_INIT   "-fno-exceptions")
+set(CMAKE_CXX_FLAGS_INIT "-fno-exceptions")
+
+set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld -fPIC -nodefaultlibs -T${CMAKE_CURRENT_SOURCE_DIR}/linker.x")
+set(CMAKE_SHARED_LINKER_FLAGS "-fuse-ld=lld -nostdlib")
+add_link_options("LINKER:SHELL:-shared --build-id=none -zmax-page-size=16384 -zcommon-page-size=16384 --hash-style=sysv")
+
+set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
+set (CMAKE_C_LINKER_WRAPPER_FLAG "-Xlinker" " ")

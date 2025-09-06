@@ -1,0 +1,3 @@
+[submodule "libNidResolver"]
+	path = libNidResolver
+	url = https://github.com/astrelsky/libNidResolver.git

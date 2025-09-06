@@ -1,0 +1,103 @@
+﻿{
+	"buildPresets": [
+		{
+			"hidden": false,
+			"verbose": true,
+			"name": "default-build-windows",
+			"displayName": "DefaultBuild",
+			"configurePreset": "ps5-base",
+			"description": "default build"
+		},
+		{
+			"hidden": false,
+			"verbose": true,
+			"name": "default-build-nix",
+			"displayName": "DefaultBuild",
+			"configurePreset": "nix-base",
+			"description": "default build"
+		}
+	],
+	"configurePresets": [
+		{
+			"name": "ps5-base",
+			"hidden": true,
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/build/${presetName}",
+			"installDir": "${sourceDir}/build/install/${presetName}",
+			"toolchainFile": "${env:PS5SDK}/cmake/toolchain-ps5.cmake",
+			"cacheVariables": {
+				"CMAKE_C_COMPILER": "clang.exe",
+				"CMAKE_CXX_COMPILER": "clang++.exe"
+			},
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Windows"
+			}
+		},
+		{
+			"name": "nix-base",
+			"hidden": true,
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/build/${presetName}",
+			"installDir": "${sourceDir}/build/install/${presetName}",
+			"toolchainFile": "${env:PS5SDK}/cmake/toolchain-ps5.cmake",
+			"cacheVariables": {
+				"CMAKE_C_COMPILER": "clang",
+				"CMAKE_CXX_COMPILER": "clang++"
+			},
+			"condition": {
+				"type": "notEquals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Windows"
+			}
+		},
+		{
+			"name": "ps5-debug",
+			"displayName": "PS5 Debug",
+			"inherits": "ps5-base",
+			"architecture": {
+				"value": "x64",
+				"strategy": "external"
+			},
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			}
+		},
+		{
+			"name": "ps5-release",
+			"displayName": "PS5 Release",
+			"inherits": "ps5-debug",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Release"
+			}
+		},
+		{
+			"name": "linux-debug",
+			"displayName": "Linux Debug",
+			"inherits": "nix-base",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			},
+			"vendor": {
+				"microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
+					"sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
+				}
+			}
+		},
+		{
+			"name": "macos-debug",
+			"displayName": "macOS Debug",
+			"inherits": "nix-base",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			},
+			"vendor": {
+				"microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
+					"sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
+				}
+			}
+		}
+	],
+	"version": 3
+}

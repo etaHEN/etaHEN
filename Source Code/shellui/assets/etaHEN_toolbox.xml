@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<system_settings version="1.0" plugin="debug_settings_plugin">
+
+  <!-- ★etaHEN Toolbox -->
+  <setting_list id="id_debug_settings" title="★etaHEN Toolbox" initial_focus_to="id_game_package_installer">
+    <!-- PKG Installer -->
+    <link id="id_game_package_installer" title="Package Installer" file="PkgInstaller/data/pkginstaller.xml"/>
+    <!-- Plugins -->
+    <link id="id_plugins" title="Plugins / Payload ELFs" file="plugins.xml"/>
+
+    <!-- Cheats -->
+    <link id="id_cheats" title="Cheats (WIP)" file="cheats.xml"/>
+
+    <!-- Remote Play PIN -->
+    <link id="remote_play" title="Remote Play" file="remote_play.xml"/>
+    <!-- Services -->
+    <setting_list id="id_services" title="Services" initial_focus_to="id_ftp_service">
+      <toggle_switch id="id_ftp_service" title="FTP" second_title="FTP Server on Port 1337" value="0"/>
+      <toggle_switch id="id_klog_service" title="Klog" second_title="Klog Server on Port 9081" value="0"/>
+      <toggle_switch id="id_dpi_service" title="Direct Package Installer" second_title="Direct PKG Installer Server on Port 9090" value="0"/>
+      <toggle_switch id="id_DPI_v2_service" title="Direct Package Installer V2" second_title="Direct PKG Installer V2 web Server on http://PS5_IP:12800" value="0"/>
+    </setting_list>
+    <!-- Settings -->
+    <setting_list id="id_utils" title="Settings" initial_focus_to="id_pause_kstuff">
+      <list id="id_pause_kstuff" title="(Beta) Pause Kstuff" second_title="Pausing kstuff will greatly improve overrall system performance but FPKGs will NOT work" confirm="PS4 FPKGs, PS5 FGs and any FPKG Homebrew apps will NOT work once paused depending on the option selected" confirm_phrase="OK, Cancel" >
+       <list_item id="id_pause_kstuff_1" title="Not Paused" value="0"/>
+       <list_item id="id_pause_kstuff_2" title="PS5 sysentvec Only" value="1"/>
+       <list_item id="id_pause_kstuff_3" title="PS4 sysentvec Only" value="2"/>
+       <list_item id="id_pause_kstuff_4" title="Pause Both PS5 and PS4 sysentvecs" value="3"/>
+      </list>
+      
+      <toggle_switch id="id_sistro_ps5debug" title="Enable PS5Debug by Sistr0 and CTN"  value="0"/>
+
+      <toggle_switch id="id_disp_titleids" title="Display Title ID on Home Menu" second_title="Works on retail but will only show with the toolbox active" value="0"/>
+
+      <toggle_switch id="id_custom_game_opts" title="etaHEN Game Options" second_title="Toggle the etaHEN Options in the Game Options menu" value="1"/>
+
+      <toggle_switch id="id_data_sb" title="Allow /data in App sandboxes" confirm="Changes will be applied next reboot" value="1"/>
+
+       <toggle_switch id="id_auto_eject" title="Auto Eject Disc on etaHEN Start" description="Automatically ejects the inserted disc after etaHEN fully starts, useful for BD-J or LUA exploits" confirm="Changes will be applied next reboot" value="0"/>
+
+      <toggle_switch id="id_ftp_dev_access" title="Allow FTP access to the /dev directory"  value="0"/>
+      <!-- Debug setting extra 1 -->
+      <link id="id_licenseactivation" title="Blu-Ray (license) Activation" file="DebugSettings/data/debug_settings_licenseactivation.xml"/>
+      <link id="id_external_hdd" title="External HDD" file="DebugSettings/data/debug_settings_external_hdd.xml" />
+
+            <!-- Rest mode options -->
+      <setting_list id="id_rest_mode" title="★ Rest Mode Options" second_title="Useful options focused at improving Rest Mode Stability" initial_focus_to="id_rest_1">
+        <text_field id="id_rest_1" title="Delay Toolbox activation (seconds)" second_title="Delays patching in the toolbox to prevent freezing (in Addition to the already builtin delay)" keyboard_type="number" min_length="1" max_length="255"/>
+        <toggle_switch id="id_rest_2" title="Automatically kill the etaHEN services daemon when entering rest mode"  second_title="The daemon will be restarted after coming from rest mode" value="0"/>
+        <toggle_switch id="id_rest_3" title="Automatically close open games when entering rest mode" second_title="Attempts to close any open game or Itemzflow when going into rest mode" value="0"/>
+        <toggle_switch id="id_rest_4" title="Disable Toolbox auto start when entering rest mode" second_title="This setting will disable toolbox auto start the next time you enter rest mode" value="0"/>
+      </setting_list>
+
+      <!-- Debug setting extra 2 -->
+      <setting_list id="id_debg_settings_extra" title="Extras" initial_focus_to="id_data_sb">
+        <text_field id="id_np_env" title="NP Environment" key="/NP/env"
+            keyboard_type="basic_latin" min_length="1" max_length="16"
+            confirm="Your system will restart to reflect the setting." confirm_phrase="OK,Cancel"/>
+         <link id="id_game_add_content_manager" title="Add. Content Manager" file="Addcontent/data/addcontent.xml" />
+      </setting_list>
+      
+      <toggle_switch id="id_lite_mode" title="Lite Mode" second_title="Kills All etaHEN services and plugins (Kstuff or HEN ONLY mode)" confirm="This WILL forcefully kill any active services and plugins (excluding the elfldr for re-enabling), Homebrew requiring etaHEN will also not function and the lite menu will not survive rest mode" value="0"/>
+
+      <toggle_switch id="id_debug_jb" title="[Debug] App Jailbreak Notification" second_title="Display a Jailbreak notification when jailbreaking an app" value="0"/>
+           <!-- TestKit Menu -->
+      <link id="id_testkit_menu" title="TestKit Menu" file="testkit_menu.xml"/>
+      
+    </setting_list>
+
+    <!-- Controller Shortcuts -->
+    <setting_list id="id_shortcuts" title="Controller Shortcuts" second_title="Shortcuts will persist upon reboots (if the toolbox is active), combos are not limited to in-game" initial_focus_to="id_cheats_shortcut">
+       <list id="id_cheats_shortcut" title="Open Cheats Menu" second_title="Set a controller shortcut to open the Cheats menu from anywhere (i.e in-game)"  >
+       <list_item id="id_cheats_shortcut_0" title="OFF (No shortcut)" value="0"/>
+       <list_item id="id_cheats_shortcut_1" title="Hold R3 + L3" value="1"/>
+       <list_item id="id_cheats_shortcut_2" title="Hold L2 + △" value="2"/>
+       <list_item id="id_cheats_shortcut_3" title="Long Hold Options button" value="3"/>
+       <list_item id="id_cheats_shortcut_4" title="Long Hold Share button" value="4"/>
+       <list_item id="id_cheats_shortcut_5" title="Single Tap Share button" value="5"/>
+      </list>
+
+      <list id="id_toolbox_shortcut" title="Open the etaHEN Toolbox" second_title="Set a controller shortcut to Open the etaHEN Toolbox Menu from anywhere (i.e in-game)"  >
+       <list_item id="id_toolbox_shortcut_0" title="OFF (No shortcut)" value="0"/>
+       <list_item id="id_toolbox_shortcut_1" title="Hold L2 + R3" value="1"/>
+       <list_item id="id_toolbox_shortcut_2" title="Long Hold Share button" value="2"/>
+       <list_item id="id_toolbox_shortcut_3" title="Single Tap Share button" value="3"/>
+      </list>
+
+      <list id="id_games_shortcut" title="Open the PS5 webMAN Games Menu" second_title="Set a controller shortcut to Open the PS5 webMAN Games Menu from anywhere (i.e in-game)"  >
+       <list_item id="id_games_shortcut_0" title="OFF (No shortcut)" value="0"/>
+       <list_item id="id_games_shortcut_1" title="Hold R1 + L1" value="1"/>
+       <list_item id="id_games_shortcut_2" title="Hold L2 + Circle" value="2"/>
+       <list_item id="id_games_shortcut_3" title="Long Hold Share button" value="3"/>
+       <list_item id="id_games_shortcut_4" title="Single Tap Share button" value="4"/>
+      </list>
+
+      <list id="id_kstuff_shortcut" title="Toggle Kstuff" second_title="Set a controller shortcut to toggle kstuff off/on from anywhere (i.e in-game)"  >
+       <list_item id="id_kstuff_shortcut_0" title="OFF (No shortcut)" value="0"/>
+       <list_item id="id_kstuff_shortcut_1" title="Hold R2 + L2" value="1"/>
+       <list_item id="id_kstuff_shortcut_2" title="Hold L2 + Square" value="2"/>
+       <list_item id="id_kstuff_shortcut_3" title="Long Hold Share button" value="3"/>
+       <list_item id="id_kstuff_shortcut_4" title="Single Tap Share button" value="4"/>
+      </list>
+
+    </setting_list>
+
+    <link id="id_ps5_backups" title="(Beta) PS5 webMAN Games" second_title="Games must be in either /data/etaHEN/games and/or etaHEN/games on USB root" icon="//user//data//etaHEN//assets//webMAN.png" file="hb_loader.xml"/>
+
+    <!--  <link id="id_ps5_plapps" title="(Beta) Payload Homebrew Apps" second_title="Homebrew must be in either /data/homebrew and/or homebrew on USB root" file="plapps.xml"/> -->
+
+    <button id="id_download_store" title="Install the Homebrew Store" icon="tex_store_icon" second_title="Installs the Homebrew Store"/>
+      <list id="id_start_opt" title="Automatically Open after etaHEN loads"  confirm="Changes will be applied next reboot" confirm_phrase="OK, Cancel" >
+        <list_item id="id_start_opt_1" title="None" value="0"/>
+       <list_item id="id_start_opt_1" title="Home Menu" value="1"/>
+       <list_item id="id_start_opt_2" title="Settings" value="2"/>    <!-- Credtis -->
+       <list_item id="id_start_opt_3" title="etaHEN Toolbox" value="3"/>
+        <list_item id="id_start_opt_4" title="Itemzflow (if installed)" value="4"/>
+      </list>
+
+    <toggle_switch id="id_toolbox_auto_start" title="etaHEN Toolbox on Startup" second_title="Toggle toolbox Startup" confirm="If disabled you will have to either re-add the toolbox or change the Startup setting via Itemzflow's settings menu manually, this will NOT disable any auto start plugins" value="0"/>
+
+
+       <!-- Credtis -->
+    <setting_list id="id_etahen_credit_options" title="About"  second_title="etaHEN Credits, Ko-fi Supporters, and more" style="center" >
+
+       <setting_list id="id_donation_methods" title="Support the Project" second_title="Do you like the project? Consider Donating">
+      <label id="id_method_info" title="★ Donation Methods" style="center"/>
+      <label id="id_method_1" title="- Ko-fi  | https://ko-fi.com/lightningmods" style="center"/>
+      <label id="id_method_2" title="- PayPal | https://tinyurl.com/etaHEN-Donate" style="center"/>
+      </setting_list>
+
+      <setting_list id="id_etahen_credits" title="etaHEN Credits" second_title="Credits and Supporters">
+      <label id="id_etahen_creds_display" title="★ etaHEN Beta 2.3" style="center"/>
+      <label id="id_lead_devs" title="★ Lead Developer(s) ★" style="center"/>
+      <label id="id_lead_devs_2" title="- LM (X @LightningMods_, GitHub @LightningMods, Discord @lm_dev)" style="center"/>
+      <label id="id_ddkdkd" title="★ etaHEN Contributors ★" style="center"/>
+      <label id="id_major_line" title="Specter - Byepervisor          astrelsky          ChendoChap       sleirsgoevy - Kstuff" style="center"/>
+      <label id="id_major_line_3" title="John tornblom - elfldr, etc" style="center"/>
+      <label id="id_99877777" title="For more info, updates or issues visit the GitHub Repo" style="center"/>
+      <label id="id_99555557" title="https://github.com/LightningMods/etaHEN" style="center"/>
+      <label id="id_8585858" title="Special Thanks to all the Ko-fi Supporters including the following:" style="center"/>
+      <label id="id_60606066" title="MODDED WARFARE, Bucanero, Echo Stretch, CurrentGenGamesWithNick, Reo Auin, illusion, nanospeedgamer, Nomadic, Michael Crump, Br0ken4life, Mouuu, Newhouse-Estates, Dr Angry " style="left"/>
+      <label id="id_60888880" title="Richard Stoltz, Not So Typical Gamer, Doobie, MC, WWIII, dutchfavx, Pulsar, gorshco, illix, Ya Boi Michael, Nineof09, Lostferwords, Kevin, kUiTs, ram" style="left"/>
+      <label id="id_606064330" title="onstar, Mapleditch, pyksy, Puky70, TheBoySassy21, Arnooooo, Jacksun, William, MauricioRodriguez, Micaiah, Madmac, Grit, dIGIMAN/TRSI, xe, Priyesh Patel" style="left"/>
+      <label id="id_60606770" title="JUNGLIST, Mega, smoothcriminal, Aka3z, Btet, 星空尽头, Tunc, Pitouuuu, Moha, proton, teotl, Hector, Osensama, Trope, x, jack favvv, lbc, Jay, mstrdtchs" style="left"/>
+      <label id="id_606069990" title="rookie_mx, SvenGDK, jose Gonzalez, Lysy767, Alfr3d, Fey, Knight1701, Efrain, Hernie, Johns, Madz, CRUCHI, koldoborne, slang777, Puffinz, Tv, Ubaldo Navarro" style="left"/>
+      <label id="id_606099960" title="Escaflowne, SrBonet, Gauban, joao, El01unO, SrBonet, Rayyden, CZ, Efrain De Alba, aide199a, Acesmokemall, Mheepae3029, fresno, wiiiiiz, aln, Eli, marusa Bucicas" style="left"/>
+      <label id="id_606055560" title="Ion Florin Berusca, Bbuster, Dimitar, ROBERHUGO, PlayStationHaX, TecnoConsolas, mega_lelikUAPS4_5.55, An21V1rus, cyberrep, PlanetaryNoob, chiagre, Samwise, Fortderrick" style="left"/>
+      <label id="id_6060ttttt0" title="ChimeFix, PeenButt, Wr0zen, Shawncarnage, Kuny, Cruznik, Vicen, shagy #8543, pepitopajas, Jakob Trammell, Austin Meer, scrdcow, XDOSEX, Kleei, Pif, ajslayer" style="left"/>
+
+    </setting_list>
+
+     <setting_list id="id_inc_project" title="Projects included in etaHEN" second_title="Projects used in etaHEN">
+        <label id="id_project_info" title="★ Open and Closed Source Projects used in etaHEN" style="center"/>
+        <label id="id_project_1" title="PS5 Payload Dev SDK - https://github.com/ps5-payload-dev/sdk" style="center"/>
+        <label id="id_project_2" title="PS5 Payload Dev elfldr - https://github.com/ps5-payload-dev/elfldr" style="center"/>
+        <label id="id_project_3" title="PS5 Dev Byepervisor - https://github.com/PS5Dev/Byepervisor" style="center"/>
+        <label id="id_project_4" title="Kstuff by sleirsgoevy - https://github.com/etaHEN/kstuff" style="center"/>
+        <label id="id_project_5" title="7-Zip LZMA - https://www.7-zip.org/sdk.html" style="center"/>
+        <label id="id_project_6" title="Libhijacker by astrelsky - https://github.com/astrelsky/libhijacker" style="center"/>
+        <label id="id_project_7" title="Tiny-json - https://github.com/rafagafe/tiny-json" style="center"/>
+        <label id="id_project_8" title="PS5-SELF-Decrypter by Specter - https://github.com/Cryptogenic/PS5-SELF-Decrypter" style="center"/>
+        <label id="id_project_9" title="PS5Debug by CTN - https://github.com/GoldHEN/ps5debug" style="center"/>
+        <label id="id_project_10" title="LibNineS - https://github.com/buzzer-re/NineS" style="center"/>
+        <label id="id_project_11" title="Libmicrohttpd - https://www.gnu.org/software/libmicrohttpd/" style="center"/>
+     </setting_list>
+
+
+    </setting_list>
+
+  </setting_list>
+
+</system_settings>
