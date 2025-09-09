@@ -839,7 +839,7 @@ class Vector {
 		constexpr void pop_back() noexcept {
 			last--;
 			if constexpr(!__is_trivially_destructible(T)) {
-				*last.~T();
+				(*last)->~T();
 			}
 		}
 
