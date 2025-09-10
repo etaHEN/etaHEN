@@ -4,9 +4,9 @@ PS5_PORT ?= 9021
 ELF := hen.elf
 BIN := hen.bin
 
-CFLAGS := -std=c++11 -Wall -Werror -D_KERNEL -I./include -O2 -fno-builtin -nostartfiles -nostdlib -fno-stack-protector -fno-plt -fPIC -Wno-error=frame-address
+CFLAGS := -std=c++11 -Wall -Werror -D_KERNEL -I./include -O2 -fno-builtin -nostdlib -fno-stack-protector -fno-plt -fPIC -Wno-error=frame-address -Wno-unused-const-variable
 #SFLAGS := -nostartfiles -nostdlib -fPIC
-LFLAGS := -Xlinker -T ./link.x -Wl,--build-id=none
+LFLAGS := -Xlinker -T ./link.x -Wl,--build-id=none -nostartfiles
 
 ODIR        := build
 SDIR        := src
