@@ -972,7 +972,8 @@ static enum MHD_Result dpiv2_on_request(void *cls, struct MHD_Connection *conn,
         }
 
         arg1.uri = temp_path;
-        arg1.content_name = req->orig_filename ? std::string("etaHEN DPIv2 | " + std::string(req->orig_filename)).c_str() : "etaHEN DPIv2";
+        std::string tempstr = std::string("etaHEN DPIv2 | " + std::string(req->orig_filename));
+        arg1.content_name = req->orig_filename ? tempstr.c_str() : "etaHEN DPIv2";
 
         const char *display_filename =
             req->orig_filename ? req->orig_filename : temp_path;

@@ -119,7 +119,7 @@ struct NonStupidIovec {
       : iov_base(str), iov_length(length) {}
 };
 
-constexpr NonStupidIovec operator"" _iov(const char *str, unsigned long len) {
+constexpr NonStupidIovec operator""_iov(const char *str, unsigned long len) {
   return {str, len + 1};
 }
 static bool remount(const char *dev, const char *path, int mnt_flag) {
