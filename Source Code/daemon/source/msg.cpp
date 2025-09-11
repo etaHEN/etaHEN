@@ -817,7 +817,7 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
   case BREW_TOGGLE_PS5DEBUG:{
     OrbisKernelSwVersion sys_ver;
     sceKernelGetProsperoSystemSwVersion(&sys_ver);
-    bool not_supported = ((sys_ver.version >> 16) <= 0x300 || (sys_ver.version >> 16) >= 0x800);
+    bool not_supported = ((sys_ver.version >> 16) < 0x300 || (sys_ver.version >> 16) >= 0x800);
     if(not_supported){
       notify(true, "PS5Debug is not supported on this firmware");
       reply(sender_app, true);
