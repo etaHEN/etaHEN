@@ -131,6 +131,8 @@ int ItemzLaunchByUri(const char *uri);
 bool enable_toolbox();
 void sig_handler(int signo);
 
+uint8_t *get_kstuff_address(bool *need_cleanup);
+bool is_elf_header(uint8_t *data);
 bool if_exists(const char *path);
 void *fifo_and_dumper_thread(void *args);
 void *Play_time_thread(void *args) noexcept;
@@ -347,8 +349,10 @@ int main() {
     }
     if (!dont_load_kstuff && !has_hv_bypass && !is_lite && !toolbox_only) {
         notify(true, "Loading kstuff ...");
+        bool cleanup_kstuff;
+        uint8_t *kstuff_address = get_kstuff_address(&cleanup_kstuff);
 
-        if (elfldr_spawn("/", STDOUT_FILENO, kstuff_start, "kstuff")) {
+        if (elfldr_spawn("/", STDOUT_FILENO, kstuff_address, "kstuff")) {
             int wait = 0;
             bool kstuff_not_loaded = false;
             sleep(1);
@@ -365,6 +369,10 @@ int main() {
         }
         else {
             notify(true, "Failed to load kstuff, kstuff will be unavailable");
+        }
+
+        if (cleanup_kstuff) {
+            free(kstuff_address);
         }
     }
 
@@ -439,4 +447,66 @@ int main() {
 
     puts("main thread ended");
     return 0;
+}
+
+uint8_t *get_kstuff_address(bool *require_cleanup) {
+    const char *path = "/data/kstuff.elf";
+    long offset = 0;
+    off_t size;
+    uint8_t *address;
+    int fd;
+
+    if (!if_exists(path)) {
+        goto embedded_kstuff; 
+    }
+
+    fd = open(path, O_RDONLY);
+
+    if (fd <= 0) {
+        goto embedded_kstuff;          
+    }
+
+    size = lseek(fd, 0, SEEK_END);
+    address = (uint8_t*) malloc(size);
+
+    if (!address) {
+        goto close_fd;
+    }
+
+    lseek(fd, 0, SEEK_SET);
+
+    while (offset != size) {
+        int n = read(fd, address + offset, size - offset);
+
+        if (n <= 0)
+        {
+            goto free_mem;
+        }
+
+        offset += n;
+    }
+
+    if(!is_elf_header(address)) {
+        notify(true, "Kstuff '%s' doesn't have ELF header.", path);
+        goto free_mem;
+    }    
+
+    *require_cleanup = true;
+    notify(true, "Loading kstuff from: %s", path);
+    return address;
+
+free_mem:
+    free(address);
+close_fd:
+    close(fd);
+embedded_kstuff:
+    *require_cleanup = false;
+    return kstuff_start;
+}
+
+bool is_elf_header(uint8_t *data)
+{
+    uint8_t header[] = {0x7f, 'E', 'L', 'F'};
+
+    return !memcmp(data, header, 4);
 }
