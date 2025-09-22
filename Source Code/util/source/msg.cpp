@@ -550,6 +550,19 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
     reply(sender_app, false);
     break;
   }
+  case BREW_UTIL_DOWNLOAD_KSTUFF: {
+    notify(true, "Downloading kstuff");
+    if (!download_file("https://github.com/EchoStretch/kstuff/releases/latest/download/kstuff.elf",
+                       "/data/kstuff.elf")) {
+      etaHEN_log("Failed to download kstuff");
+      reply(sender_app, true);
+      break;
+    }
+
+    notify(true, "Successfully downloaded latest kstuff");
+    reply(sender_app, false);
+    break;    
+  }  
   case BREW_UTIL_RELOAD_CHEATS: {
     notify(true, "Reloading cheats cache");
     ReloadCheatsCache(NULL);

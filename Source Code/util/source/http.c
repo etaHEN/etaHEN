@@ -182,7 +182,7 @@ bool download_file(const char* url, const char* dst)
     const char *filename = strrchr(dst, '/');
     filename = filename ? filename + 1 : dst; // Get just the filename without the path
     
-    snprintf(notifyMsg, sizeof(notifyMsg), "Downloading the latest cheats repo ...");
+    snprintf(notifyMsg, sizeof(notifyMsg), "Downloading '%s' ...", filename);
     notify(true, notifyMsg);
     
     // Get current time for notification timing
@@ -228,12 +228,12 @@ bool download_file(const char* url, const char* dst)
                 int progress = (int)(((float)total_read / contentLength) * 100);
                 
                 snprintf(notifyMsg, sizeof(notifyMsg), 
-                         "Downloading the cheats repo:..\n%.1f/%.1f MB (%d%%)", 
-                         total_mb, total_size_mb, progress);
+                         "Downloading '%s':..\n%.1f/%.1f MB (%d%%)", 
+                         filename, total_mb, total_size_mb, progress);
             } else {
                 snprintf(notifyMsg, sizeof(notifyMsg), 
-                         "Downloading the cheats repo...\n%.1f MB Downloaded", 
-                         total_mb);
+                         "Downloading '%s'...\n%.1f MB Downloaded", 
+                         filename, total_mb);
             }
             
             notify(true, notifyMsg);
@@ -243,11 +243,11 @@ bool download_file(const char* url, const char* dst)
     
     // Final notification
     snprintf(notifyMsg, sizeof(notifyMsg), 
-             "Successfully downloaded the cheats repo\nTotal Size: %.1f MB", 
-             (float)total_read / (1024 * 1024));
+             "Successfully downloaded '%s'\nTotal Size: %.1f MB", 
+             filename, (float)total_read / (1024 * 1024));
     notify(true, notifyMsg);
     
-    etaHEN_log("Download complete: %d bytes", total_read);
+    etaHEN_log("Download complete '%s': %d bytes", filename, total_read);
     sceKernelClose(fd);
     success = true;
     
@@ -269,7 +269,7 @@ error:
     
     if (!success) {
         // Notify on error
-        notify(true, "Failed to download the cheats repo!\n\nCheck your internet connection and try again.");
+        notify(true, "Failed to download [%s]!\n\nCheck your internet connection and try again.", filename);
     }
     
     return success;

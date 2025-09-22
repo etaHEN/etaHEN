@@ -28,6 +28,8 @@
        <list_item id="id_pause_kstuff_3" title="PS4 sysentvec Only" value="2"/>
        <list_item id="id_pause_kstuff_4" title="Pause Both PS5 and PS4 sysentvecs" value="3"/>
       </list>
+
+      <button id="id_download_kstuff" title="Download latest Kstuff"/>    
       
       <toggle_switch id="id_sistro_ps5debug" title="Enable PS5Debug by Sistr0 and CTN"  value="0"/>
 

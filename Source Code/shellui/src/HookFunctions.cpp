@@ -86,6 +86,7 @@ MonoClass* MemoryStream_IO = nullptr;
 
 */
 std::atomic_bool install_thread_in_progress(false);
+std::atomic_bool download_kstuff_thread_in_progress(false);
 std::atomic_bool cheat_action_in_progress(false);
 static std::string current_menu_tid;
 int usbpath();
@@ -613,6 +614,20 @@ void* download_cheats_thr(void*){
     return nullptr;
 }
 
+void* kstuff_download_thread(void* args) {
+    if(download_kstuff_thread_in_progress){
+        notify("Download action already in progress, please wait for it to complete...");
+        pthread_exit(nullptr);
+        return nullptr;
+    }
+    download_kstuff_thread_in_progress = true;
+    IPC_Client& util_ipc = IPC_Client::getInstance(true);
+    shellui_log("Ret: 0x%X", util_ipc.DownloadKstuff());
+    download_kstuff_thread_in_progress = false;
+    pthread_exit(nullptr);
+    return nullptr;
+}
+
 void* reload_cheats_thr(void*){
     if(cheat_action_in_progress){
         notify("Cheat action already in progress, please wait for it to complete...");
@@ -673,7 +688,7 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
         return oOnPress(Instance, element, e);
     }
     
-   if(value.empty() && id != "id_download_store" && id != "id_dl_cheats" && id != "id_reload_cheats" && !is_game && id != "id_save_rp_info"){
+   if(value.empty() && id != "id_download_kstuff" && id != "id_download_store" && id != "id_dl_cheats" && id != "id_reload_cheats" && !is_game && id != "id_save_rp_info"){
     #if SHELL_DEBUG==1
        shellui_log("[LM HOOK] OnPress_Hook: Id: %s has no value set", id.c_str());
     #endif
@@ -900,6 +915,11 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
         pthread_create(&thr, nullptr, store_install_thread, nullptr);
         pthread_detach(thr);
 
+    }
+    else if (id == "id_download_kstuff") {
+        pthread_t thr;
+        pthread_create(&thr, nullptr, kstuff_download_thread, nullptr);
+        pthread_detach(thr);
     }
     else if (id == "id_auto_itemzflow") {
         Auto_ItemzFlow = !Auto_ItemzFlow;

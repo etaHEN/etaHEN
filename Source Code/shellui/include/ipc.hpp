@@ -286,6 +286,16 @@ public:
     return IPC_Ret::NO_ERROR;
   }
 
+  IPC_Ret DownloadKstuff() {
+    std::string ipc_msg;
+    if (!IPCSendCommand(BREW_UTIL_DOWNLOAD_KSTUFF, ipc_msg)) {
+      shellui_log("Failed to BREW_UTIL_DOWNLOAD_KSTUFF");
+      return IPC_Ret::OPERATION_FAILED;
+    }
+
+    return IPC_Ret::NO_ERROR;
+  }  
+
   void KillDaemon() {
     std::string ipc_msg;
     IPCSendCommand(BREW_KILL_DAEMON, ipc_msg);

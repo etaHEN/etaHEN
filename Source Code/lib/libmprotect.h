@@ -3,7 +3,6 @@
 #include "ps5/kernel.h"
 #include <ps5/klog.h>
 
-/*
 static const unsigned long KERNEL_OFFSET_PROC_P_VMSPACE = 0x200;
 static unsigned long KERNEL_OFFSET_VMSPACE_P_ROOT = 0x1c8;
 
@@ -159,4 +158,3 @@ static int kernel_mprotect(int pid, unsigned long addr, unsigned long len, int p
 
   return -1;
 }
-*/

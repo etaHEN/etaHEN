@@ -51,6 +51,7 @@ enum DaemonCommands : int {
   BREW_UTIL_TOGGLE_CHEAT,
   BREW_UTIL_DOWNLOAD_CHEATS,
   BREW_UTIL_RELOAD_CHEATS,
+  BREW_UTIL_DOWNLOAD_KSTUFF,
 
   // Special command to launch Johns elfldr for lite mode
   BREW_UTIL_LAUNCH_ELFLDR = 0xE1F1D8, // not used if already running
