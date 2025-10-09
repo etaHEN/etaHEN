@@ -238,6 +238,7 @@ int main()
 ```
 
 ## Contributors
+- [John Tornblom / PS5-Payload-dev](https://github.com/john-tornblom)
 - [Buzzer](https://github.com/buzzer-re)
 - [sleirsgoevy](https://github.com/sleirsgoevy)
 - [ChendoChap](https://github.com/ChendoChap)
