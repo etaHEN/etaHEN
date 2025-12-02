@@ -143,7 +143,7 @@ bool GetFileContents(const char *path, char **buffer);
 void notify(bool show_watermark, const char *text, ...);
 bool rmtree(const char *path);
 int get_ip_address(char *ip_address);
-bool Get_Running_App_TID(std::string &title_id);
+bool Get_Running_App_TID(std::string& title_id, int& BigAppid);
 bool is_whitelisted_app(const std::string &tid);
 void *Play_time_thread(void *args) noexcept;
 bool enable_toolbox();
@@ -358,9 +358,9 @@ error:
   return -1;
 }
 
-bool Get_Running_App_TID(std::string &title_id) {
+bool Get_Running_App_TID(std::string &title_id, int &BigAppid) {
   char tid[255];
-  int BigAppid = sceSystemServiceGetAppIdOfRunningBigApp();
+  BigAppid = sceSystemServiceGetAppIdOfRunningBigApp();
   if (BigAppid < 0) {
     return false;
   }
@@ -380,7 +380,8 @@ bool is_whitelisted_app(const std::string &tid) {
       "ITEM00001",
       "NPXS39041", 
       "DUMP00000",
-      "PKGI13337"
+      "PKGI13337",
+      "TOOL00001",
   };
   
   // Check for exact matches
@@ -400,9 +401,10 @@ void *Play_time_thread(void *args) noexcept {
   const char *filename = "/data/etaHEN/playtime.bin";
   std::string tid;
   uint64_t duration = 0;
+  int appid;
   
   while (true) {
-    if (!Get_Running_App_TID(tid)) {
+    if (!Get_Running_App_TID(tid, appid)) {
       continue;
     }
     
@@ -550,7 +552,7 @@ bool Open_Utility_Elf(const char *path, uint8_t **buffer) {
   *buffer = buf; // Pass the buffer back to the caller
   return true;
 }
-
+bool cmd_enable_fps(int appid);
 void *fifo_and_dumper_thread(void *args) noexcept {
   char *json_str = nullptr;
   constexpr uint32_t MAX_TOKENS = 256;
@@ -559,45 +561,50 @@ void *fifo_and_dumper_thread(void *args) noexcept {
   int retries = 0;
   bool fifo_found = false;
 
-  #define MAX_RETIRES 5
-  uint8_t *util_elf = nullptr;
+#define MAX_RETIRES 5
+  uint8_t* util_elf = nullptr;
 
   while (true) {
-    std::string sandbox_dir;
-    // restart the util services daemon if it crashes or exits
-    if (find_pid("etaHEN Utility") < 0 && retries < MAX_RETIRES) {
-      if (retries == 0 || !util_elf) {
-        notify(true, "etaHEN Utility is not running, restarting...");
-        if (!Open_Utility_Elf("/data/etaHEN/daemons/util.elf", &util_elf)) {
-          if (++retries >= MAX_RETIRES)
-            notify(true, "Failed to open etaHEN Utility, please resend the payload or restart the console");
-          continue;
-        }
-      }
-      
-      if (++retries >= MAX_RETIRES) {
-        notify(true, "etaHEN Utility services failed to restart, please resend the payload or restart the console");
-        free(util_elf);
-        continue;
-      }
-      
-      if (elfldr_spawn("/", STDOUT_FILENO, util_elf, "etaHEN Utility Daemon") >= 0) {
-        etaHEN_log("  Launched!");
-        notify(true, "etaHEN Utility services successfully restarted");
-        retries = 0;
-      } else {
-        etaHEN_log("failed to launch utility daemon, retry: %d", retries);
-      }
+      std::string sandbox_dir;
+      // restart the util services daemon if it crashes or exits
+      if (find_pid("etaHEN Utility") < 0 && retries < MAX_RETIRES) {
+          if (retries == 0 || !util_elf) {
+              notify(true, "etaHEN Utility is not running, restarting...");
+              if (!Open_Utility_Elf("/data/etaHEN/daemons/util.elf", &util_elf)) {
+                  if (++retries >= MAX_RETIRES)
+                      notify(true, "Failed to open etaHEN Utility, please resend the payload or restart the console");
+                  continue;
+              }
+          }
 
-      free(util_elf);
-    }
+          if (++retries >= MAX_RETIRES) {
+              notify(true, "etaHEN Utility services failed to restart, please resend the payload or restart the console");
+              free(util_elf);
+              continue;
+          }
+
+          if (elfldr_spawn("/", STDOUT_FILENO, util_elf, "etaHEN Utility Daemon") >= 0) {
+              etaHEN_log("  Launched!");
+              notify(true, "etaHEN Utility services successfully restarted");
+              retries = 0;
+          }
+          else {
+              etaHEN_log("failed to launch utility daemon, retry: %d", retries);
+          }
+
+          free(util_elf);
+      }
 
     pthread_mutex_lock(&jb_lock);
-    if (!Get_Running_App_TID(tid)) {
+    int bappid;
+    if (!Get_Running_App_TID(tid, bappid)) {
       pthread_mutex_unlock(&jb_lock);
       continue;
     }
-    
+#if 0
+    if(tid.rfind("CUSA") != std::string::npos || tid.rfind("SCUS") != std::string::npos)
+         cmd_enable_fps(bappid);
+#endif
     if (is_dumper_enabled) {
       if (strstr(tid.c_str(), "ITEM00001") != 0) {
         pthread_mutex_unlock(&jb_lock);
@@ -712,6 +719,7 @@ void *fifo_and_dumper_thread(void *args) noexcept {
           notify(true, "App (PID %i) has been granted a jailbreak", reserved_value);
 
       spawned->jailbreak(true);
+	  spawned.release();
     //  jailbreak_proc(reserved_value);
       unlink(sandbox_dir.c_str());
     }

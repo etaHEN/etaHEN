@@ -21,6 +21,8 @@ static GameCheat *currentGameCheat = nullptr;
 bool monitorGameRunning = false;
 pthread_t pthreadMonitor;
 extern "C" void notify(bool show_watermark, const char *text, ...);
+
+
 //
 // This function is used to fix the mc4 decrypted xml file
 //
@@ -508,6 +510,18 @@ GameCheat *CheatManager::LoadCheat(CheatMetadata *meta,
   return gameCheats;
 }
 
+typedef struct
+{
+    uint64_t pad0;
+    char version_str[0x1C];
+    uint32_t version;
+    uint64_t pad1;
+} OrbisKernelSwVersion;
+
+extern "C" {
+    int sceKernelGetProsperoSystemSwVersion(OrbisKernelSwVersion *version);
+}
+
 //
 // Enable/Disable cheat based on the current cheat state
 //
@@ -517,6 +531,10 @@ bool CheatManager::ToggleCheat(int pid, const std::string &title_id,
     return false;
   }
 
+  OrbisKernelSwVersion sys_ver;
+  sceKernelGetProsperoSystemSwVersion(&sys_ver);
+  int fw = (sys_ver.version >> 16);
+
   if (cheat_index < 0 || cheat_index > currentGameCheat->cheats.size()) {
     etaHEN_log("Cheat index %d is 0 or greater than the size", cheat_index);
     return false;
@@ -524,8 +542,9 @@ bool CheatManager::ToggleCheat(int pid, const std::string &title_id,
   bool status = true;
 
   CheatInfo &cheat = currentGameCheat->cheats[cheat_index];
+  etaHEN_log("Toggling cheat %s", cheat.name.c_str());
   module_info_t *target_mod = get_module_handle(pid, cheat.module_name.c_str());
-
+  etaHEN_log("Target module name: %s", cheat.module_name.c_str());
   if (!target_mod) {
     etaHEN_log("CheatManager::ToggleCheat: Unable to find %s of cheat %s",
                cheat.module_name.c_str(), title_id.c_str());
@@ -544,6 +563,14 @@ bool CheatManager::ToggleCheat(int pid, const std::string &title_id,
   if (ps2Lib) {
     isPS2 = true;
     free(ps2Lib);
+  }
+
+  int pt_ret = 0;
+  if (fw >= 0x840) {
+      if (pt_attach_proc(pid) < 0) {
+          etaHEN_log("Unable to ptrace into %d, aborting cheat...", pid);
+          return false;
+      }
   }
 
   //
@@ -586,12 +613,23 @@ bool CheatManager::ToggleCheat(int pid, const std::string &title_id,
     //
     // Search inside the mcPatch where the current cheat modification starts
     //
-    uint64_t mcAddress = baseAddress + mcPatch.Offset;
+
+    uint64_t mcAddress = mcPatch.absolute ? mcPatch.Offset : baseAddress + mcPatch.Offset;  // 09/10/2025 xZenithy
+
     std::vector<uint8_t> vPatchedCode(mcPatch.On.size());
     //
     // Copy cheat master code
     //
-    mdbg_copyout(pid, mcAddress, vPatchedCode.data(), mcPatch.On.size());
+    if (fw >= 0x840) {
+        etaHEN_log("Master code address: %#02lx", mcAddress);
+        kernel_mprotect(pid, mcAddress, mcPatch.On.size(), PROT_READ | PROT_WRITE | PROT_EXEC);
+        etaHEN_log("Copying master code...");
+        pt_ret = pt_copyout(pid, mcAddress, vPatchedCode.data(), mcPatch.On.size());
+        etaHEN_log("Master code copied... errno %d %d", pt_ret, pt_errno(pid));
+    }
+    else {
+        mdbg_copyout(pid, mcAddress, vPatchedCode.data(), mcPatch.On.size());
+    }
     //
     // Search the cheat inside the Master Code, the "Off" field holds the
     // original MC code
@@ -622,16 +660,25 @@ bool CheatManager::ToggleCheat(int pid, const std::string &title_id,
     //
     // If the address is higher
     //
-    uint64_t addr = isPS2 ? mod.Offset : baseAddress + mod.Offset;
+    uint64_t addr = (isPS2 || mod.absolute) ? mod.Offset : baseAddress + mod.Offset;  // Absolute address controled by bolean variables // 09/10/2025 xZenithy
 
-    etaHEN_log("Offset: %#02lx\n", mod.Offset);
-    etaHEN_log("Addr: %#02lx\n", addr);
+    etaHEN_log("Offset: %#02lx", mod.Offset);
+    etaHEN_log("Addr: %#02lx", addr);
     // etaHEN_log("Base address: %#02lx %s\n", baseAddress,
     // target_mod->filename);
     bool fixCodeCave = false;
     // bool try_fix_asrl = false;
     if (cheat.enabled) {
-      mdbg_copyin(pid, mod.Off.data(), addr, mod.Off.size());
+	  etaHEN_log("Disabling cheat...");
+      if (fw >= 0x840) {
+          kernel_mprotect(pid, addr, patch_size, PROT_READ | PROT_WRITE | PROT_EXEC);
+          etaHEN_log("Restoring original data...");
+          pt_ret = pt_copyin(pid, mod.Off.data(), addr, mod.Off.size());
+      }
+      else {
+          mdbg_copyin(pid, mod.Off.data(), addr, mod.Off.size());
+      }
+      etaHEN_log("Cheat %s disabled, errno %d %d", cheat.name.c_str(), pt_ret, pt_errno(pid));
       enabled = false;
     } else {
       uint8_t *patch_data = mod.On.data();
@@ -650,12 +697,13 @@ bool CheatManager::ToggleCheat(int pid, const std::string &title_id,
         //
         // Fix offset on code caves that don't exist due the process layout
         //
-        // addr = baseAddress + mod.Offset;
-        if (pt_attach(pid) < 0) {
-          etaHEN_log("Unable to ptrace into %d, aborting cheat...", pid);
-          status = false;
-          break;
+        if (fw < 0x840) {
+              if (pt_attach_proc(pid) < 0) {
+                  etaHEN_log("Unable to ptrace into %d, aborting cheat...", pid);
+                  return false;
+              }
         }
+        // addr = baseAddress + mod.Offset;
         uint64_t mem = pt_mmap(pid, ROUND_PG_DOWN(addr),
                                ROUND_PG(mod.On.size()), PROT_READ | PROT_WRITE,
                                MAP_PRIVATE | MAP_ANONYNMOUS, -1, 0);
@@ -669,12 +717,28 @@ bool CheatManager::ToggleCheat(int pid, const std::string &title_id,
         etaHEN_log("Making it executable...");
         kernel_mprotect(pid, mem, ROUND_PG(mod.On.size()),
                         PROT_READ | PROT_EXEC | PROT_WRITE);
-        pt_detach(pid);
+
+        if (fw < 0x840) {
+            pt_detach_proc(pid, 0);
+        }
         etaHEN_log("Ready to continue...");
       }
 
-      mdbg_copyin(pid, patch_data, addr, patch_size);
-      mdbg_copyout(pid, addr, dump_on, patch_size);
+	  etaHEN_log("Enabling cheat %s...", cheat.name.c_str());
+      if (fw >= 0x840) {
+          kernel_mprotect(pid, addr, patch_size, PROT_READ | PROT_WRITE | PROT_EXEC);
+          etaHEN_log("Applying patch...");
+          pt_ret = pt_copyin(pid, patch_data, addr, patch_size);
+          etaHEN_log("Patch applied, verifying... errrno %d %d", pt_ret, pt_errno(pid));
+          kernel_mprotect(pid, addr, patch_size, PROT_READ | PROT_WRITE | PROT_EXEC);
+          etaHEN_log("Reading back patched data...");
+          pt_ret = pt_copyout(pid, addr, dump_on, patch_size);
+          etaHEN_log("Data read back, comparing... errrno %d %d", pt_ret, pt_errno(pid));
+      }
+      else {
+          mdbg_copyin(pid, patch_data, addr, patch_size);
+          mdbg_copyout(pid, addr, dump_on, patch_size);
+      }
       enabled = true;
       //
       // Checking if patch was applied successfully
@@ -706,7 +770,12 @@ bool CheatManager::ToggleCheat(int pid, const std::string &title_id,
   }
 
   cheat.enabled = enabled;
-
+ // pt_continue(pid);
+  if (fw >= 0x840) {
+      pt_ret = pt_detach_proc(pid, 0);
+      etaHEN_log("Detached from process %d, errno %d %d", pid, pt_ret,
+          pt_errno(pid));
+  }
   return status;
 }
 
@@ -1016,7 +1085,7 @@ CheatManager::CheatManagerFormats::ParseXMLCheat(const std::string &xml,
         std::string section = cheatLine.child("Section").text().as_string();
         std::string on = cheatLine.child("ValueOn").text().as_string();
         std::string off = cheatLine.child("ValueOff").text().as_string();
-
+        std::string absolute = cheatLine.child("Absolute").text().as_string();  // 09/10/2025 xZenithy
         // etaHEN_log("Offset: %s\nSection: %s\nOn: %s\nOff: %s\n",
         //     offset.c_str(),
         //     section.c_str(),
@@ -1039,6 +1108,7 @@ CheatManager::CheatManagerFormats::ParseXMLCheat(const std::string &xml,
           mem.Offset = strtol(offset.c_str(), NULL, 16);
           mem.On = Converters::unhexlify(on);
           mem.Off = Converters::unhexlify(off);
+          mem.absolute = !absolute.empty();  // false if missing, true absolute address // 09/10/2025 xZenithy
         }
 
         if (section.size()) {

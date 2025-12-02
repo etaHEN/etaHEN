@@ -141,6 +141,8 @@ typedef struct
 	bool DPI_v2;
 	bool klog;
 	bool disable_toolbox_for_rest;
+	atomic_bool legacy_cmd_server;
+	atomic_bool legacy_cmd_server_exit;
 	uint64_t seconds;
 } util_settings;
 

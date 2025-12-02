@@ -61,8 +61,8 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 ")
 target_sources(${PROJECT_NAME} PRIVATE ${SrcFiles})
 target_include_directories(${PROJECT_NAME} PRIVATE "${D_CWD}/include")
 target_link_directories	(${PROJECT_NAME} PUBLIC "${PROJECT_ROOT}/lib")
-add_dependencies(${PROJECT_NAME} NineS shellui hijacker SelfDecryptor)
-target_link_libraries	(${PROJECT_NAME} PUBLIC hijacker ScePad SceSystemService SceNet SceRegMgr SceSysmodule SceUserService SceNetCtl SceShellUIUtil SceSysCore kernel_sys SceAppInstUtil NineS SelfDecryptor)
+add_dependencies(${PROJECT_NAME} NineS shellui hijacker SelfDecryptor elfldr)
+target_link_libraries	(${PROJECT_NAME} PUBLIC hijacker ScePad SceSystemService SceNet SceRegMgr SceSysmodule SceUserService SceNetCtl SceSysCore kernel_sys SceAppInstUtil NineS elfldr SelfDecryptor)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Add post-build command
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

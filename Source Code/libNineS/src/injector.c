@@ -1,4 +1,5 @@
 #include "../include/injector.h"
+#include "ps5/klog.h"
 
 int attached = false;
 intptr_t remote_malloc = 0;
@@ -7,9 +8,6 @@ void* remote_pthread_join = NULL;
 SCEFunctions sce_functions = {0};
 
 
-//
-// Shellcode used for debugging, not so useful for ELF loading
-//
 int __attribute__((section(".stager_shellcode$1")))  stager(SCEFunctions* functions)
 {
     pthread_t thread;
@@ -69,79 +67,82 @@ void init_remote_function_pointers(pid_t pid)
     sce_functions.sceKernelDebugOutText = (void*) pt_resolve(pid, nid);
     sce_functions.pthread_create_ptr = (void*) remote_pthread_create;
 
-
-
 }
 
 
 int inject_elf(struct proc* proc, void* elf)
 {   
-    puts("[+] Elevating injector...[+]\n");
+    klog_puts("[+] Elevating injector...[+]");
 
     set_ucred_to_debugger();
     int status = true;
     uint64_t sce_ptr_mem;
     uint64_t shellcode_size = get_shellcode_size();
-    uint8_t* original_code = malloc(shellcode_size);
 
     if (pt_attach(proc->pid) < 0)
     {
-        printf("Error attaching into PID: %d\n", proc->pid);
+        klog_printf("Error attaching into PID: %d\n", proc->pid);
         status = false;
         goto exit;
     }
 
-    printf("[+] Attached to %d! [+]\n", proc->pid);
+    klog_printf("[+] Attached to %d! [+]\n", proc->pid);
     attached = true;
 
     init_remote_function_pointers(proc->pid);
 
-    printf("[+] Loading ELF on %d...[+]\n", proc->pid);
+    klog_printf("[+] Loading ELF on %d...[+]\n", proc->pid);
     intptr_t entry = elfldr_load(proc->pid, (uint8_t*) elf);
 
     if (entry <= 0)
     {
-        printf("[-] Failed to load ELF! [-]\n");
+        klog_printf("[-] Failed to load ELF! [-]\n");
         goto detach;
     }
+
     intptr_t args = elfldr_payload_args(proc->pid);
-    printf("[+] ELF entrypoint: %#02lx [+]\n[+] Payload Args: %#02lx [+]\n", entry, args);
+    klog_printf("[+] ELF entrypoint: %#02lx [+]\n[+] Payload Args: %#02lx [+]\n", entry, args);
 
     //  
-    // Copy shellcode thread parameters
+    // Copy shellcode thread parameters & boot code
     //
-    
-    module_info_t* mod = get_module_handle(proc->pid, "eboot.bin");
     sce_functions.elf_main = (void*) entry;
     sce_functions.payload_args = (void*) args;
 
+
+    uint64_t bootstrap = pt_mmap(proc->pid, 0, shellcode_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    
+    if (!bootstrap)
+    {
+        klog_printf("Unable to allocate bootstrap code, injection aborted!\n");
+        goto detach;
+    } 
+
     //
-    // Store original .init code and overwrite with the stager
+    // Make it executable
     //
-    mdbg_copyout(proc->pid, mod->init, original_code, shellcode_size);
-    mdbg_copyin(proc->pid, stager, mod->init, shellcode_size);
+    kernel_mprotect(proc->pid, bootstrap, shellcode_size, PROT_EXEC|PROT_WRITE|PROT_READ);
+    pt_copyin(proc->pid, stager, bootstrap, shellcode_size);
+
+    klog_printf("[+] Bootstrap code allocated at %#02lx [+]\n", bootstrap);
     //
     // Write the sce functions data
     //
-    sce_ptr_mem = pt_call(proc->pid, remote_malloc, sizeof(SCEFunctions));
-    mdbg_copyin(proc->pid, &sce_functions, sce_ptr_mem, sizeof(SCEFunctions));
+    sce_ptr_mem = pt_mmap(proc->pid, 0, sizeof(sce_functions), PROT_READ|PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    pt_copyin(proc->pid, &sce_functions, sce_ptr_mem, sizeof(SCEFunctions));
 
-    puts("[+] Triggering entrypoint... [+]\n");
+    klog_puts("[+] Triggering entrypoint... [+]");
     //
     // Call until hit a breakpoint
     //
-    pt_call2(proc->pid, mod->init, sce_ptr_mem);
-    // mdbg_copyin(proc->pid, original_code, mod->init, shellcode_size);
+    pt_call2(proc->pid, bootstrap, sce_ptr_mem);
 
-    pt_detach(proc->pid);
-
-    puts("[+] ELF injection finished! [+]");
-
-    free(mod);
-    free(original_code);
-    
 detach:
-    puts("[+] Detached [+]");
+    pt_detach(proc->pid, 0);
+
+    klog_puts("[+] ELF injection finished! [+]");
+
+    klog_puts("[+] Detached [+]");
 exit:
     return status;
 
@@ -175,7 +176,7 @@ module_info_t* load_remote_library(pid_t pid, const char* library_path, const ch
     //
     // Now we detach, sleep a little and attach again
     //
-    pt_detach(pid);
+    pt_detach(pid, 0);
 
     int retries = 0;
     int max_retries = 100;

@@ -20,7 +20,8 @@ along with this program; see the file COPYING. If not, see
 #include <sys/signal.h>
 #include <freebsd-helper.h>
 #include <libgen.h>
-
+#include <ps5/klog.h>
+#include "pt.h"
 
 typedef struct app_info {
   uint32_t app_id;
@@ -30,14 +31,13 @@ typedef struct app_info {
   char     unknown2[0x3c];
 } app_info_t;
 
-void *runCommandNControlServer(void *r);
 int launchApp(const char *titleId);
 int sceSystemServiceGetAppId(const char *title_id);
 void free(void *ptr);
 void *malloc(size_t size);
 int elfldr_set_procname(pid_t pid, const char* name);
 
-
+int sceKernelGetProcessName(int pid, char *name);
 int sceKernelGetAppInfo(int pid, app_info_t *title);
 pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
 
@@ -63,7 +63,49 @@ atomic_bool not_connected = false;
 );
 
 
- 
+
+ static int
+     sys_ptrace(int request, pid_t pid, caddr_t addr, int data) {
+     pid_t mypid = getpid();
+     uint64_t authid;
+     int ret;
+
+     if (!(authid = kernel_get_ucred_authid(mypid))) {
+         return -1;
+     }
+     if (kernel_set_ucred_authid(mypid, 0x4800000000010003l)) {
+         return -1;
+     }
+
+     ret = (int)syscall(SYS_ptrace, request, pid, addr, data);
+
+     if (kernel_set_ucred_authid(mypid, authid)) {
+         return -1;
+     }
+
+     return ret;
+ }
+
+
+ int pt_detach_proc(pid_t pid, int sig) {
+     if (sys_ptrace(PT_DETACH, pid, 0, sig) == -1) {
+         return -1;
+     }
+
+     return 0;
+ }
+
+ int pt_attach_proc(pid_t pid) {
+     if (sys_ptrace(PT_ATTACH, pid, 0, 0) == -1) {
+         return -1;
+     }
+
+     if (waitpid(pid, 0, 0) == -1) {
+         return -1;
+     }
+
+     return 0;
+ }
 
 int get_ip_address(char *ip_address)
 {
@@ -105,6 +147,7 @@ void etaHEN_log(const char * fmt, ...) {
   }
 
   printf("[etaHEN utils]: %s", msg); // msg already includes a newline
+  klog_printf("%s", msg); // msg already includes a newline
 
   int fd = open("/data/etaHEN/etaHEN_util_daemon.log", O_WRONLY | O_CREAT | O_APPEND, 0777);
   if (fd < 0) {
@@ -221,9 +264,9 @@ static bool mkdir_if_necessary(const char *path) {
   return true;
 }
 
-
 bool make_plugin_app(const char *tid, const void *start,
-                     const unsigned int size) {
+                     const unsigned int size)
+{
   // REDIS->NPXS40028
   char sys_app[255];
   static const char *json = "{\n"
@@ -238,9 +281,11 @@ bool make_plugin_app(const char *tid, const void *start,
                             "\"\n"
                             "}\n";
   snprintf(sys_app, sizeof(sys_app), "/system_ex/app/%s", tid);
-  if (mkdir(sys_app, 0777) == -1) {
+  if (mkdir(sys_app, 0777) == -1)
+  {
     const int err = errno;
-    if (err != EEXIST) {
+    if (err != EEXIST)
+    {
       perror("make_plugin_app mkdir /system_ex/app/");
       return false;
     }
@@ -250,20 +295,23 @@ bool make_plugin_app(const char *tid, const void *start,
   make_hb_elf(tid, start, size);
   (void)memset(sys_app, 0, sizeof(sys_app));
   snprintf(sys_app, sizeof(sys_app), "/system_ex/app/%s/eboot.bin", tid);
-  if (!copyFile("/system_ex/app/NPXS40028/eboot.bin", sys_app)) {
+  if (!copyFile("/system_ex/app/NPXS40028/eboot.bin", sys_app))
+  {
     puts("failed to copy redis eboot.bin");
     return false;
   }
   (void)memset(sys_app, 0, sizeof(sys_app));
   snprintf(sys_app, sizeof(sys_app), "/system_ex/app/%s/sce_sys", tid);
-  if (!mkdir_if_necessary(sys_app)) {
+  if (!mkdir_if_necessary(sys_app))
+  {
     return false;
   }
   (void)memset(sys_app, 0, sizeof(sys_app));
   snprintf(sys_app, sizeof(sys_app), "/system_ex/app/%s/sce_sys/param.json",
            tid);
   FILE *fp = fopen(sys_app, "w+");
-  if (fp == NULL) {
+  if (fp == NULL)
+  {
     perror("open failed");
     return false;
   }
@@ -277,96 +325,101 @@ bool make_plugin_app(const char *tid, const void *start,
 
 bool is_valid_plugin(const unsigned char *file_buffer)
 {
-	// Check if the prefix matches
-	if (strncmp((const char *)file_buffer, "etaHEN_PLUGIN", 13) != 0)
-	{
-		puts("Plugin header prefix does not match");
-		return false;
-	}
+  // Check if the prefix matches
+  if (strncmp((const char *)file_buffer, "etaHEN_PLUGIN", 13) != 0)
+  {
+    puts("Plugin header prefix does not match");
+    return false;
+  }
 
-	// Validate the title ID format (4 uppercase letters followed by 4 numbers)
-	const CustomPluginHeader *header = (const CustomPluginHeader *)file_buffer;
-	for (int i = 0; i < 4; ++i)
-	{
-		if (header->titleID[i] < 'A' || header->titleID[i] > 'Z')
-		{
-			puts("Invalid plugin file: titleID must contain 4 uppercase letters as the start");
-			return false;
-		}
-	}
-	for (int i = 4; i < 9; ++i)
-	{
-		if (header->titleID[i] < '0' || header->titleID[i] > '9')
-		{
-			puts("Invalid plugin file: titleID must contain 5 numbers as the end");
-			return false;
-		}
-	}
+  // Validate the title ID format (4 uppercase letters followed by 4 numbers)
+  const CustomPluginHeader *header = (const CustomPluginHeader *)file_buffer;
+  for (int i = 0; i < 4; ++i)
+  {
+    if (header->titleID[i] < 'A' || header->titleID[i] > 'Z')
+    {
+      puts("Invalid plugin file: titleID must contain 4 uppercase letters as the start");
+      return false;
+    }
+  }
+  for (int i = 4; i < 9; ++i)
+  {
+    if (header->titleID[i] < '0' || header->titleID[i] > '9')
+    {
+      puts("Invalid plugin file: titleID must contain 5 numbers as the end");
+      return false;
+    }
+  }
 
-	// Ensure the title ID is null-terminated
-	if (header->titleID[9] != '\0')
-	{
-		puts("Invalid plugin file: titleID must be null-terminated");
-		return false;
-	}
+  // Ensure the title ID is null-terminated
+  if (header->titleID[9] != '\0')
+  {
+    puts("Invalid plugin file: titleID must be null-terminated");
+    return false;
+  }
 
-	for (int i = 0; i < 3; ++i)
-	{
-		if (header->plugin_version[i] == '.')
-		{
-			continue;
-		}
-		else if (header->plugin_version[i] < '0' || header->plugin_version[i] > '9')
-		{
-			puts("Invalid plugin file: version must be in the following format xx.xx");
-			return false;
-		}
-	}
+  for (int i = 0; i < 3; ++i)
+  {
+    if (header->plugin_version[i] == '.')
+    {
+      continue;
+    }
+    else if (header->plugin_version[i] < '0' || header->plugin_version[i] > '9')
+    {
+      puts("Invalid plugin file: version must be in the following format xx.xx");
+      return false;
+    }
+  }
 
-	return true;
+  return true;
 }
-     
 
-pid_t find_pid(const char * name) {
+pid_t find_pid(const char *name)
+{
   int mib[4] = {
-    CTL_KERN,
-    KERN_PROC,
-    KERN_PROC_PROC,
-    0
-  };
+      CTL_KERN,
+      KERN_PROC,
+      KERN_PROC_PROC,
+      0};
   app_info_t appinfo;
   size_t buf_size;
-  void * buf;
+  void *buf;
 
   int pid = -1;
-  // determine size of query response
-  if (sysctl(mib, 4, NULL,&buf_size, NULL, 0)) {
+  //  size of query response
+  if (sysctl(mib, 4, NULL, &buf_size, NULL, 0))
+  {
     etaHEN_log("sysctl failed: %s", strerror(errno));
     return -1;
   }
 
   // allocate memory for query response
-  if (!(buf = malloc(buf_size))) {
+  if (!(buf = malloc(buf_size)))
+  {
     etaHEN_log("malloc failed %s", strerror(errno));
     return -1;
   }
 
   // query the kernel for proc info
-  if (sysctl(mib, 4, buf,&buf_size, NULL, 0)) {
+  if (sysctl(mib, 4, buf, &buf_size, NULL, 0))
+  {
     etaHEN_log("sysctl failed: %s", strerror(errno));
     free(buf);
     return -1;
   }
 
- for(void *ptr=buf; ptr<(buf+buf_size);) {
-    struct kinfo_proc *ki = (struct kinfo_proc*)ptr;
+  for (void *ptr = buf; ptr < (buf + buf_size);)
+  {
+    struct kinfo_proc *ki = (struct kinfo_proc *)ptr;
     ptr += ki->ki_structsize;
 
-    if (sceKernelGetAppInfo(ki->ki_pid,&appinfo)) {
+    if (sceKernelGetAppInfo(ki->ki_pid, &appinfo))
+    {
       memset(&appinfo, 0, sizeof(appinfo));
     }
 
-    if (strcmp(ki->ki_comm, name) == 0) {
+    if (strcmp(ki->ki_comm, name) == 0)
+    {
       pid = ki->ki_pid;
       break;
     }
@@ -377,114 +430,207 @@ pid_t find_pid(const char * name) {
   return pid;
 }
 
-bool is_elf_file(const void* buffer, size_t size) {
-    if (size < 4) return false;
-    
-    const unsigned char elf_magic[] = {0x7F, 'E', 'L', 'F'};
-    return memcmp(buffer, elf_magic, 4) == 0;
+
+bool is_elf_file(const void *buffer, size_t size)
+{
+  if (size < 4)
+    return false;
+
+  const unsigned char elf_magic[] = {0x7F, 'E', 'L', 'F'};
+  return memcmp(buffer, elf_magic, 4) == 0;
 }
 
-bool load_plugin(const char * path) {
+bool load_plugin(const char *path)
+{
   int fd = open(path, O_RDONLY);
-  if (fd < 0) {
+  if (fd < 0)
+  {
     etaHEN_log("Failed to open file, %s (error %s)", path, strerror(errno));
     return false;
   }
 
   struct stat st;
-  if (fstat(fd, & st) != 0) {
+  if (fstat(fd, &st) != 0)
+  {
     etaHEN_log("Failed to get file stats");
     close(fd);
     return false;
   }
-
+ 
   // Allocate buffer and read the entire file.
-  uint8_t * buf = (uint8_t * ) malloc(st.st_size);
-  if (!buf) {
+  uint8_t *buf = (uint8_t *)malloc(st.st_size);
+  if (!buf)
+  {
     etaHEN_log("Failed to allocate memory for Plugin file");
     close(fd);
     return false;
   }
 
-  if (read(fd, buf, st.st_size) != st.st_size) {
+  if (read(fd, buf, st.st_size) != st.st_size)
+  {
     etaHEN_log("Failed to read Plugin file");
-    free(buf), buf = NULL;
+    free(buf);
     close(fd);
     return false;
   }
-
   close(fd);
 
-  const char* filename = basename(path);
-  if (strstr(filename, ".elf") != NULL) {
-  // Handle ELF plugin loading
-   if (!is_elf_file(buf, st.st_size)) {
-       etaHEN_log("Invalid ELF file.");
-       notify(true, "Invalid ELF file: %s", filename);
-       free(buf), buf = NULL;
-       return false;
-   }
+  const CustomPluginHeader *header = (const CustomPluginHeader *)buf;
+  const char *filename = basename(path);
 
-   pid_t pid = 0;
-   printf("seeing if elf is running\n");
-   while ((pid = find_pid(filename)) > 0) {
-     printf("killing pid %d\n", pid);
-     if (kill(pid, SIGKILL)) {
-       perror("kill");
-     }
-     break;
-   }
+  if (strstr(filename, ".elf") != NULL)
+  {
+    etaHEN_log("ELF detected: %s", filename);
 
-   printf("loading elf %s\n", filename);
-   if ((pid = elfldr_spawn("/", STDOUT_FILENO, buf, filename)) >= 0) {
-    printf("  Launched!\n");
-   } else {
-    printf("  Already Running!\n");
-   }
+    if (!is_elf_file(buf, st.st_size))
+    {
+      etaHEN_log("Invalid ELF file.");
+      notify(true, "Invalid ELF file: %s", filename);
+      free(buf);
+      return false;
+    }
 
-   free(buf), buf = NULL;
+    char pbuf[256];
+    snprintf(pbuf, sizeof(pbuf), "/system_tmp/%s.PID", header->titleID);
 
-   return true;
- }
+    pid_t pid = -1;
+    int f = open(pbuf, O_RDONLY);
+    if (f >= 0)
+    {
+      char t[32];
+      int r = read(f, t, sizeof(t) - 1);
+      close(f);
+      if (r > 0)
+      {
+        t[r] = 0;
+        pid = atoi(t);
+      }
+    }
 
-  if (!is_valid_plugin(buf)) {
+    if (pid > 0)
+    {
+      char name[32];
+      if (sceKernelGetProcessName(pid, name) < 0)
+      {
+        etaHEN_log("Stale plugin PID file detected for %s, removing", header->titleID);
+        unlink(pbuf);
+        pid = -1;
+      }
+    }
+
+    if (pid > 0)
+    {
+      etaHEN_log("killing pid %d (plugin: %s)", pid, header->titleID);
+      kill(pid, SIGKILL);
+      unlink(pbuf);
+    }
+
+    etaHEN_log("loading elf %s", filename);
+    pid = elfldr_spawn("/", STDOUT_FILENO, buf, header->titleID);
+
+    if (pid >= 0)
+      etaHEN_log("  Launched!");
+    else
+      etaHEN_log("  Already Running!");
+
+    free(buf);
+
+    f = open(pbuf, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (f >= 0)
+    {
+      if (pid >= 0)
+      {
+        char t[32];
+        int l = snprintf(t, sizeof(t), "%d", pid);
+        write(f, t, l);
+      }
+      else
+      {
+        unlink(pbuf);
+      }
+      close(f);
+    }
+
+    return (pid >= 0);
+  }
+
+  if (!is_valid_plugin(buf))
+  {
     etaHEN_log("Invalid plugin file.");
-    free(buf), buf = NULL;
+    free(buf);
     return false;
   }
 
-  const CustomPluginHeader * header = (const CustomPluginHeader * ) buf;
   etaHEN_log("============== Plugin info ===============");
   etaHEN_log("Plugin Prefix: %s", header->prefix);
   etaHEN_log("Plugin TitleID: %s", header->titleID);
   etaHEN_log("Plugin Version: %s", header->plugin_version);
   etaHEN_log("=========================================");
 
-  // Get the address of the ELF header
-  uint8_t * elf = get_elf_header_address(buf);
+  char pbuf[256];
+  snprintf(pbuf, sizeof(pbuf), "/system_tmp/%s.PID", header->titleID);
 
+  pid_t pid = -1;
+  int f = open(pbuf, O_RDONLY);
+  if (f >= 0)
+  {
+    char t[32];
+    int r = read(f, t, sizeof(t) - 1);
+    close(f);
+    if (r > 0)
+    {
+      t[r] = 0;
+      pid = atoi(t);
+    }
+  }
+
+  if (pid > 0)
+  {
+    char name[32];
+    if (sceKernelGetProcessName(pid, name) < 0)
+    {
+      etaHEN_log("Stale plugin PID file detected for %s, removing", header->titleID);
+      unlink(pbuf);
+      pid = -1;
+    }
+  }
+
+  etaHEN_log("seeing if plugin is running");
+  if (pid > 0)
+  {
+    etaHEN_log("killing pid %d (plugin: %s)", pid, header->titleID);
+    kill(pid, SIGKILL);
+    unlink(pbuf);
+  }
+
+  uint8_t *elf = get_elf_header_address(buf);
   make_plugin_app(header->titleID, elf, st.st_size - sizeof(CustomPluginHeader));
 
-  pid_t pid  = 0;
-  etaHEN_log("seeing if plugin is running");
-  while ((pid = find_pid(header->titleID)) > 0) {
-    etaHEN_log("killing pid %d", pid);
-    if (kill(pid, SIGKILL)) {
-      perror("kill");
-    }
-    break;
-  }
-
   etaHEN_log("loading plugin %s", path);
-  bool success = false;
-  if ((success = elfldr_spawn("/", STDOUT_FILENO, elf, header->titleID) >= 0)) {
+  pid = elfldr_spawn("/", STDOUT_FILENO, elf, header->titleID);
+  bool success = (pid >= 0);
+  if (success)
     etaHEN_log("  Launched!");
-  } else {
+  else
     etaHEN_log("  Failed to launch plugin");
+
+  f = open(pbuf, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (f >= 0)
+  {
+    if (success)
+    {
+      char t[32];
+      int l = snprintf(t, sizeof(t), "%d", pid);
+      write(f, t, l);
+    }
+    else
+    {
+      unlink(pbuf);
+    }
+    close(f);
   }
 
-  free(buf), buf = NULL;
-
+  free(buf);
   return success;
 }
 

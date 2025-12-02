@@ -27,39 +27,27 @@ along with this program; see the file COPYING. If not, see
 #include <sys/mman.h>
 
 #include <ps5/kernel.h>
+#include <ps5/klog.h>
 
 #include "../include/pt.h"
 
 
 static int
 sys_ptrace(int request, pid_t pid, caddr_t addr, int data) {
-  uint8_t privcaps[16] = {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
-                          0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
   pid_t mypid = getpid();
-  uint8_t caps[16];
   uint64_t authid;
   int ret;
 
   if(!(authid=kernel_get_ucred_authid(mypid))) {
     return -1;
   }
-  if(kernel_get_ucred_caps(mypid, caps)) {
-    return -1;
-  }
-
   if(kernel_set_ucred_authid(mypid, 0x4800000000010003l)) {
-    return -1;
-  }
-  if(kernel_set_ucred_caps(mypid, privcaps)) {
     return -1;
   }
 
   ret = (int)syscall(SYS_ptrace, request, pid, addr, data);
 
   if(kernel_set_ucred_authid(mypid, authid)) {
-    return -1;
-  }
-  if(kernel_set_ucred_caps(mypid, caps)) {
     return -1;
   }
 
@@ -71,10 +59,6 @@ intptr_t
 pt_resolve(pid_t pid, const char* nid) {
   intptr_t addr;
 
-  if((addr=kernel_dynlib_resolve(pid, 0x2, nid))) {
-    return addr;
-  }
-
   if((addr=kernel_dynlib_resolve(pid, 0x1, nid))) {
     return addr;
   }
@@ -84,14 +68,12 @@ pt_resolve(pid_t pid, const char* nid) {
 
 
 int
-pt_trace_me(void) {
-  return sys_ptrace(PT_TRACE_ME, 0, 0, 0);
-}
-
-
-int
 pt_attach(pid_t pid) {
   if(sys_ptrace(PT_ATTACH, pid, 0, 0) == -1) {
+    return -1;
+  }
+
+  if(waitpid(pid, 0, 0) == -1) {
     return -1;
   }
 
@@ -100,8 +82,8 @@ pt_attach(pid_t pid) {
 
 
 int
-pt_detach(pid_t pid) {
-  if(sys_ptrace(PT_DETACH, pid, 0, 0) == -1) {
+pt_detach(pid_t pid, int sig) {
+  if(sys_ptrace(PT_DETACH, pid, 0, sig) == -1) {
     return -1;
   }
 
@@ -140,6 +122,12 @@ pt_getint(pid_t pid, intptr_t addr) {
 
 
 int
+pt_setint(pid_t pid, intptr_t addr, int val) {
+  return sys_ptrace(PT_WRITE_D, pid, (caddr_t)addr, val);
+}
+
+
+int
 pt_getregs(pid_t pid, struct reg *r) {
   return sys_ptrace(PT_GETREGS, pid, (caddr_t)r, 0);
 }
@@ -148,6 +136,76 @@ pt_getregs(pid_t pid, struct reg *r) {
 int
 pt_setregs(pid_t pid, const struct reg *r) {
   return sys_ptrace(PT_SETREGS, pid, (caddr_t)r, 0);
+}
+
+
+int
+pt_copyin(pid_t pid, const void* buf, intptr_t addr, size_t len) {
+  struct ptrace_io_desc iod = {
+    .piod_op = PIOD_WRITE_D,
+    .piod_offs = (void*)addr,
+    .piod_addr = (void*)buf,
+    .piod_len = len};
+  return sys_ptrace(PT_IO, pid, (caddr_t)&iod, 0);
+}
+
+
+int
+pt_setchar(pid_t pid, intptr_t addr, char val) {
+  return pt_copyin(pid, &val, addr, sizeof(val));
+}
+
+
+int
+pt_setshort(pid_t pid, intptr_t addr, short val) {
+  return pt_copyin(pid, &val, addr, sizeof(val));
+}
+
+
+int
+pt_setlong(pid_t pid, intptr_t addr, long val) {
+  return pt_copyin(pid, &val, addr, sizeof(val));
+}
+
+
+int
+pt_copyout(pid_t pid, intptr_t addr, void* buf, size_t len) {
+  struct ptrace_io_desc iod = {
+    .piod_op = PIOD_READ_D,
+    .piod_offs = (void*)addr,
+    .piod_addr = buf,
+    .piod_len = len};
+  return sys_ptrace(PT_IO, pid, (caddr_t)&iod, 0);
+}
+
+
+char
+pt_getchar(pid_t pid, intptr_t addr) {
+  char val = 0;
+
+  pt_copyout(pid, addr, &val, sizeof(val));
+
+  return val;
+}
+
+
+short
+pt_getshort(pid_t pid, intptr_t addr) {
+  short val = 0;
+
+  pt_copyout(pid, addr, &val, sizeof(val));
+
+  return val;
+}
+
+
+long
+pt_getlong(pid_t pid, intptr_t addr) {
+  long val = 0;
+
+  pt_copyout(pid, addr, &val, sizeof(val));
+
+  return val;
 }
 
 
@@ -186,7 +244,7 @@ pt_call(pid_t pid, intptr_t addr, ...) {
       return -1;
     }
   }
-  
+
   // restore registers
   if(pt_setregs(pid, &bak_reg)) {
     return -1;
@@ -230,6 +288,7 @@ pt_call2(pid_t pid, intptr_t addr, ...)
 
   return jmp_reg.r_rax;
 }
+
 
 long
 pt_syscall(pid_t pid, int sysno, ...) {
@@ -284,18 +343,6 @@ pt_syscall(pid_t pid, int sysno, ...) {
 }
 
 
-int
-pt_jitshm_create(pid_t pid, intptr_t name, size_t size, int flags) {
-  return (int)pt_syscall(pid, 0x215, name, size, flags);
-}
-
-
-int
-pt_jitshm_alias(pid_t pid, int fd, int flags) {
-  return (int)pt_syscall(pid, 0x216, fd, flags);
-}
-
-
 intptr_t
 pt_mmap(pid_t pid, intptr_t addr, size_t len, int prot, int flags,
 	int fd, off_t off) {
@@ -334,8 +381,15 @@ pt_setsockopt(pid_t pid, int fd, int level, int optname, intptr_t optval,
 			 optlen, 0);
 }
 
+
 int
-pt_bind(pid_t pid, int sockfd, intptr_t addr, socklen_t addrlen) {
+pt_close(pid_t pid, int fd) {
+  return (int)pt_syscall(pid, SYS_close, fd);
+}
+
+
+int
+pt_bind(pid_t pid, int sockfd, intptr_t addr, uint32_t addrlen) {
   return (int)pt_syscall(pid, SYS_bind, sockfd, addr, addrlen);
 }
 
@@ -343,12 +397,6 @@ pt_bind(pid_t pid, int sockfd, intptr_t addr, socklen_t addrlen) {
 ssize_t
 pt_recvmsg(pid_t pid, int fd, intptr_t msg, int flags) {
   return (int)pt_syscall(pid, SYS_recvmsg, fd, msg, flags);
-}
-
-
-int
-pt_close(pid_t pid, int fd) {
-  return (int)pt_syscall(pid, SYS_close, fd);
 }
 
 
@@ -371,30 +419,17 @@ pt_pipe(pid_t pid, intptr_t pipefd) {
 }
 
 
-void
-pt_perror(pid_t pid, const char *s) {
+int
+pt_errno(pid_t pid) {
   intptr_t faddr = pt_resolve(pid, "9BcDykPmo1I");
   intptr_t addr = pt_call(pid, faddr);
-  int err = pt_getint(pid, addr);
-  char buf[255];
-
-  strcpy(buf, s);
-  strcat(buf, ": ");
-  strcat(buf, strerror(err));
-  puts(buf);
+  return pt_getint(pid, addr);
 }
 
 
 intptr_t
 pt_sceKernelGetProcParam(pid_t pid) {
   intptr_t faddr = pt_resolve(pid, "959qrazPIrg");
-
-  return pt_call(pid, faddr);
-}
-
-intptr_t
-pt_getargv(pid_t pid) {
-  intptr_t faddr = pt_resolve(pid, "FJmglmTMdr4");
 
   return pt_call(pid, faddr);
 }

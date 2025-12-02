@@ -41,6 +41,14 @@ along with this program; see the file COPYING. If not, see
  #include <sys/un.h>
  #include <sys/wait.h>
  #include <unistd.h>
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdio.h>
+#include <errno.h>
  
  /******************************************************************************
   * Custom Header Includes
@@ -53,7 +61,17 @@ along with this program; see the file COPYING. If not, see
  #include "faulthandler.h"
  #include "hbldr.h"
  #include "pt.h"
+ #include <ps5/klog.h>
  #include <ps5/kernel.h>
+
+ pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
+ int sceKernelMprotect(void* addr, size_t len, int prot);
+
+ extern uint8_t kstuff_start[];
+ extern const unsigned int kstuff_size;
+
+ extern uint8_t fps_prx_start[];
+ extern const unsigned int fps_prx_size;
  }
  
  /******************************************************************************
@@ -220,7 +238,6 @@ along with this program; see the file COPYING. If not, see
  char buff[255];
  char **loaded_filenames = NULL;
  jmp_buf g_catch_buf;
- static int gAppId = 0;
  FileDescriptor sock;
  
  // Constants
@@ -246,11 +263,25 @@ static void cleanup(void);
  /******************************************************************************
   * Function Implementations
   ******************************************************************************/
+ extern uint8_t shellui_prx_start[];
+ extern const unsigned int shellui_prx_size;
+
   void write_embedded_assets() {
     mkdir("/data/etaHEN/", 0777);
     mkdir("/data/etaHEN/assets/", 0777);
- 
-    if (!if_exists("/data/etaHEN/assets/store.png")) {
+#if 0
+    int fd = open("/system_ex/common_ex/lib/shell.prx", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd == -1) {
+        perror("open failed");
+        return;
+    }
+    if (write(fd, &shellui_prx_start, shellui_prx_size) == -1) {
+        perror("write failed");
+        return;
+    }
+    close(fd);
+#endif    
+if (!if_exists("/data/etaHEN/assets/store.png")) {
       int fd = open("/data/etaHEN/assets/store.png", O_WRONLY | O_CREAT | O_TRUNC, 0666);
       if (fd == -1) {
         perror("open failed");
@@ -298,6 +329,68 @@ static void cleanup(void);
       close(fd);
     }
 }
+
+  bool is_elf_header(uint8_t* data)
+  {
+      uint8_t header[] = { 0x7f, 'E', 'L', 'F' };
+
+      return !memcmp(data, header, 4);
+  }
+
+
+  uint8_t* get_kstuff_address(bool& require_cleanup) {
+      const char* path = "/data/etaHEN/kstuff.elf";
+      long offset = 0;
+      off_t size;
+      uint8_t* address;
+      int fd;
+
+      if (!if_exists(path)) {
+          goto embedded_kstuff;
+      }
+
+      fd = open(path, O_RDONLY);
+      if (fd <= 0) {
+          goto embedded_kstuff;
+      }
+
+      size = lseek(fd, 0, SEEK_END);
+      address = (uint8_t*)malloc(size);
+
+      if (!address) {
+          goto close_fd;
+      }
+
+      lseek(fd, 0, SEEK_SET);
+
+      while (offset != size) {
+          int n = read(fd, address + offset, size - offset);
+
+          if (n <= 0)
+          {
+              goto free_mem;
+          }
+
+          offset += n;
+      }
+
+      if (!is_elf_header(address)) {
+          notify( "Kstuff '%s' doesn't have ELF header.", path);
+          goto free_mem;
+      }
+
+      require_cleanup = true;
+      notify("Loading kstuff from: %s", path);
+      return address;
+
+  free_mem:
+      free(address);
+  close_fd:
+      close(fd);
+  embedded_kstuff:
+      require_cleanup = false;
+      return kstuff_start;
+  }
  
  bool if_exists(const char *path) {
    struct stat buffer;
@@ -504,104 +597,197 @@ bool is_elf_file(const void* buffer, size_t size) {
     return memcmp(buffer, elf_magic, 4) == 0;
 }
 
-bool load_plugin(const char *path, const char* filename) {
+
+bool load_plugin(const char *path, const char *filename)
+{
   int fd = open(path, O_RDONLY);
-  if (fd < 0) {
+  if (fd < 0)
+  {
     perror("Failed to open file");
     return false;
   }
 
   struct stat st;
-  if (fstat(fd, &st) != 0) {
+  if (fstat(fd, &st) != 0)
+  {
     perror("Failed to get file stats");
     close(fd);
     return false;
   }
-
   // Allocate buffer and read the entire file.
   uint8_t *buf = (uint8_t *)malloc(st.st_size);
-  if (!buf) {
+  if (!buf)
+  {
     perror("Failed to allocate memory for Plugin file");
     close(fd);
     return false;
   }
 
-  if (read(fd, buf, st.st_size) != st.st_size) {
+  if (read(fd, buf, st.st_size) != st.st_size)
+  {
     perror("Failed to read Plugin file");
     free(buf), buf = NULL;
     close(fd);
     return false;
   }
-
   close(fd);
 
- if (strstr(filename, ".elf") != NULL) {
-  // Handle ELF plugin loading
-  if (!is_elf_file(buf, st.st_size)) {
+  const CustomPluginHeader *header = (const CustomPluginHeader *)buf;
+
+  char pbuf[256];
+  snprintf(pbuf, sizeof(pbuf), "/system_tmp/%s.PID", header->titleID);
+
+  if (strstr(filename, ".elf") != NULL)
+  {
+    // Handle ELF plugin loading
+    if (!is_elf_file(buf, st.st_size))
+    {
       free(buf), buf = NULL;
       return false;
+    }
+
+    pid_t pid = -1;
+    int f = open(pbuf, O_RDONLY);
+    if (f >= 0)
+    {
+      char t[32];
+      int r = read(f, t, sizeof(t) - 1);
+      close(f);
+      if (r > 0)
+      {
+        t[r] = 0;
+        pid = atoi(t);
+      }
+    }
+
+    if (pid > 0)
+    {
+      char name[32];
+      if (sceKernelGetProcessName(pid, name) < 0)
+      {
+        printf("Stale plugin PID file detected for %s, removing\n", header->titleID);
+        unlink(pbuf);
+        pid = -1;
+      }
+    }
+
+    printf("seeing if elf is running\n");
+    if (pid > 0)
+    {
+      printf("killing pid %d\n", pid);
+      if (kill(pid, SIGKILL))
+        perror("kill");
+      unlink(pbuf);
+    }
+
+    printf("loading elf %s\n", filename);
+    pid = elfldr_spawn("/", sock.fd, buf, header->titleID);
+    if (pid >= 0)
+      printf("  Launched!\n");
+    else
+      printf("  Already Running!\n");
+
+    free(buf), buf = NULL;
+
+    f = open(pbuf, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (f >= 0)
+    {
+      if (pid >= 0)
+      {
+        char t[32];
+        int l = snprintf(t, sizeof(t), "%d", pid);
+        write(f, t, l);
+      }
+      else
+      {
+        unlink(pbuf);
+      }
+      close(f);
+    }
+
+    return true;
   }
 
-   pid_t pid = 0;
-   printf("seeing if elf is running\n");
-   while ((pid = find_pid(filename)) > 0) {
-     printf("killing pid %d\n", pid);
-     if (kill(pid, SIGKILL)) {
-       perror("kill");
-     }
-     break;
-   }
-
-   printf("loading elf %s\n", filename);
-   if (elfldr_spawn("/", sock.fd, buf, filename) >= 0) {
-    printf("  Launched!\n");
-   } else {
-    printf("  Already Running!\n");
-   }
-
-   free(buf), buf = NULL;
-
-   return true;
- }
-
-  if (!is_valid_plugin(buf)) {
+  if (!is_valid_plugin(buf))
+  {
     puts("Invalid plugin file.");
     free(buf), buf = NULL;
     return false;
   }
 
-  const CustomPluginHeader *header = (const CustomPluginHeader *)buf;
   puts("============== Plugin info ===============");
   printf("Plugin Prefix: %s\n", header->prefix);
   printf("Plugin TitleID: %s\n", header->titleID);
   printf("Plugin Version: %s\n", header->plugin_version);
   puts("=========================================");
 
-  // Get the address of the ELF header
+  snprintf(pbuf, sizeof(pbuf), "/system_tmp/%s.PID", header->titleID);
+
   uint8_t *elf = get_elf_header_address(buf);
 
-  pid_t pid  = gAppId = 0;
-  printf("seeing if plugin is running\n");
-  while ((pid = find_pid(header->titleID)) > 0) {
-    printf("killing pid %d\n", pid);
-    if (kill(pid, SIGKILL)) {
-      perror("kill");
+  pid_t pid = -1;
+  int f = open(pbuf, O_RDONLY);
+  if (f >= 0)
+  {
+    char t[32];
+    int r = read(f, t, sizeof(t) - 1);
+    close(f);
+    if (r > 0)
+    {
+      t[r] = 0;
+      pid = atoi(t);
     }
-    break;
   }
 
-  if(strcmp(header->titleID, "EORR37000") == 0) {
-     notify("The Error disabler plugin is no longer required and has been auto deleted.");
-     unlink(path);
-     free(buf), buf = NULL;
-     return true; // Do not load the plugin if it's EORR37000
+  if (pid > 0)
+  {
+    char name[32];
+    if (sceKernelGetProcessName(pid, name) < 0)
+    {
+      printf("Stale plugin PID file detected for %s, removing\n", header->titleID);
+      unlink(pbuf);
+      pid = -1;
+    }
+  }
+
+  printf("seeing if plugin is running\n");
+  if (pid > 0)
+  {
+    printf("killing pid %d\n", pid);
+    if (kill(pid, SIGKILL))
+      perror("kill");
+    unlink(pbuf);
+  }
+
+  if (strcmp(header->titleID, "EORR37000") == 0)
+  {
+    notify("The Error disabler plugin is no longer required and has been auto deleted.");
+    unlink(path);
+    free(buf), buf = NULL;
+    return true;
   }
 
   printf("loading plugin %s\n", path);
-  if (elfldr_spawn("/", sock.fd, elf, header->titleID) >= 0) {
+  pid = elfldr_spawn("/", sock.fd, elf, header->titleID);
+  if (pid >= 0)
     printf("  Launched!\n");
-  } else {
+  else
     printf("  Already Running!\n");
+
+  f = open(pbuf, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (f >= 0)
+  {
+    if (pid >= 0)
+    {
+      char t[32];
+      int l = snprintf(t, sizeof(t), "%d", pid);
+      write(f, t, l);
+    }
+    else
+    {
+      unlink(pbuf);
+    }
+    close(f);
   }
 
   free(buf), buf = NULL;
@@ -745,6 +931,13 @@ bool sceKernelIsTestKit() {
   // printf("PSID (%s) Not whitelisted\n", psid_buf);
   return if_exists("/system/priv/lib/libSceDeci5Ttyp.sprx");
 }
+#define PUBLIC_TEST 0
+#define EXPIRE_YEAR 2025
+#define EXPIRE_MONTH 12
+#define EXPIRE_DAY 25
+
+
+bool isPastBetaDate(int year, int month, int day);
 
 int main(void) {
   // ptrace(PT_ATTACH, pid, 0, 0);
@@ -757,7 +950,7 @@ int main(void) {
 
   signal(SIGCHLD, SIG_IGN);
 
-  puts("Jailbreaking the boostrapper ...");
+  klog_puts("Jailbreaking the boostrapper ...");
   // launch socksrv.elf in a new processes
   if (elfldr_raise_privileges(getpid())) {
     notify("Unable to raise privileges");
@@ -789,13 +982,13 @@ int main(void) {
 #endif
 
 
-  printf("   Success!\n");
+  klog_printf("   Success!\n");
   if(if_exists("/data/I_want_logging_for_etahen")){
-     printf("Redirecting stdout and stderr to logger ...");
+      klog_printf("Redirecting stdout and stderr to logger ...");
      if(initStdout() >= 0)
-       puts("   Success!");
+         klog_puts("   Success!");
      else
-       puts("   Failed!");
+         klog_puts("   Failed!");
       
   }
 
@@ -834,7 +1027,7 @@ int main(void) {
   sceKernelGetProsperoSystemSwVersion(&sys_ver);
 
   if (sys_ver.version < 0x3000000 && !sceKernelIsGenuineDevKit()) {
-    printf("FW %s version has Byepervisor available, sstarting....\n", sys_ver.version_str);
+    klog_printf("FW %s version has Byepervisor available, sstarting....\n", sys_ver.version_str);
     if (!Byepervisor()) {
       printf("Byepervisor failed or is resume_nedded");
       return 0;
@@ -845,18 +1038,18 @@ int main(void) {
   notify("[Bootstrapper] etaHEN is starting...\n    DO NOT EXIT    \nwait for "
          "the etaHEN welcome message");
 
-  puts("============== Spawner (Bootstrapper) Started =================");
+  klog_puts("============== Spawner (Bootstrapper) Started =================");
 
   mkdir("/data/etaHEN", 0777);
   mkdir("/data/etaHEN/plugins", 0777);
   mkdir("/data/etaHEN/payloads", 0777);
   mkdir("/data/etaHEN/daemons", 0777);
 
-  printf("Registering signal handler ...");
+  klog_printf("Registering signal handler ...");
   fault_handler_init(cleanup);
-  printf("   Success!\n");
+  klog_printf("   Success!\n");
 
-  printf("Remounting system partitions ...");
+  klog_printf("Remounting system partitions ...");
   if (!remount("/dev/ssd0.system_ex", "/system_ex")) {
     perror("failed to mount /system_ex\nif you see this reboot");
     notify("failed to mount /system_ex\nif you see this reboot");
@@ -867,13 +1060,13 @@ int main(void) {
     notify("failed to mount /system\nif you see this reboot");
     return -1;
   }
-  printf("   Success!\n");
+  klog_printf("   Success!\n");
 
-  printf("Writing embedded assets ...");
+  klog_printf("Writing embedded assets ...");
   write_embedded_assets();
-  printf("   Written!\n");
+  klog_printf("   Written!\n");
 
-  printf("Unmounting /update forcefully ...");
+  klog_printf("Unmounting /update forcefully ...");
   // block updates
   unlink("/update/PS5UPDATE.PUP");
   unlink("/update/PS5UPDATE.PUP.net.temp");
@@ -882,9 +1075,49 @@ int main(void) {
     unmount("/update", 0);
   }
 
-  printf("   Success!\n");
+  klog_puts("   Success!");
 
-  printf("Starting Utility etaHEN services ...");
+#if 1
+  char buz[100] = { 0 };
+  // Load kstuff if needed
+  bool dont_load_kstuff = (if_exists("/mnt/usb0/no_kstuff") || if_exists("/data/etaHEN/no_kstuff"));
+  if (dont_load_kstuff) {
+      notify("kstuff loading disabled via file, non-payload homebrew and PS4 FPKGs will be disabled");
+      klog_puts("kstuff loading disabled in config.ini or no_kstuff file found");
+  }
+  if (!dont_load_kstuff && sys_ver.version >= 0x3000000) {
+      notify("Loading kstuff ...");
+
+      bool cleanup_kstuff = false;
+      uint8_t* kstuff_address = get_kstuff_address(cleanup_kstuff);
+
+      if (elfldr_spawn("/", STDOUT_FILENO, kstuff_address, "kstuff")) {
+          int wait = 0;
+          bool kstuff_not_loaded = false;
+          sleep(1);
+          while ((kstuff_not_loaded = sceKernelMprotect(&buz[0], 100, 0x7) < 0)) {
+              if (wait++ > 10) {
+                  notify("Failed to load kstuff, kstuff will be unavailable");
+                  break;
+              }
+              sleep(1);
+          }
+
+          if (!kstuff_not_loaded)
+              klog_puts("kstuff loaded");
+
+          if (cleanup_kstuff) {
+              free(kstuff_address);
+          }
+      }
+      else {
+          notify("Failed to load kstuff, kstuff will be unavailable");
+      }
+  }
+  sleep(1);
+#endif
+
+  klog_printf("Starting Utility etaHEN services ...");
 
   while ((pid = find_pid("etaHEN")) > 0) {
    // printf("killing pid %d\n", pid);
@@ -894,14 +1127,13 @@ int main(void) {
   }
 
   if (elfldr_spawn("/", sock.fd, util_start, "etaHEN Utility Daemon") >= 0) {
-    printf("  Launched!\n");
+      klog_printf("  Launched!\n");
     // Open the file with write permission, create if not exist, truncate to zero if exists
     int fd = open("/data/etaHEN/daemons/util.elf", O_WRONLY | O_CREAT | O_TRUNC, 0777);
     if (fd == -1) {
       perror("open failed");
       return -1337;
     }
-
     // Write the buffer to the file
     if (write(fd, util_start, util_size) == -1) {
        perror("write failed");
@@ -910,19 +1142,19 @@ int main(void) {
     // Close the file descriptor
     close(fd);
   } else {
-    printf("failed to launch utility daemon\n");
+    klog_printf("failed to launch utility daemon\n");
     notify("failed to launch the etaHEN utility daemon");
     return -2;
   }
 
-  printf("Starting the main etaHEN daemon ...");
+  klog_printf("Starting the main etaHEN daemon ...");
 
   if (elfldr_spawn("/", sock.fd, daemon_start, "etaHEN Critical services") >= 0) {
-    printf("  Launched!\n");
+      klog_printf("  Launched!\n");
   } else {
-    printf("failed to launch main daemon\n");
-    notify("failed to launch the main etaHEN daemon");
-    return -2;
+      klog_printf("failed to launch main daemon\n");
+      notify("failed to launch the main etaHEN daemon");
+      return -2;
   }
 
   // return 0;
@@ -934,29 +1166,29 @@ int main(void) {
     for (int i = 0; i < plugin_count; i++) {
       // Skip loading elfldr.plugin in this loop
       if (strstr(plugin_paths[i], "elfldr") == 0) {
-        printf("Loading plugin: %s\n", plugin_paths[i]);
+          klog_printf("Loading plugin: %s\n", plugin_paths[i]);
         if (!load_plugin(plugin_paths[i], loaded_filenames[i])) {
           snprintf(buff, sizeof(buff),
                    "[etaHEN] Failed to load plugin!\nPath: %s",
                    plugin_paths[i]);
           notify(buff);
-          puts("FAILED!");
+          klog_puts("FAILED!");
           continue;
         }
 
-        puts("Loaded!");
+        klog_puts("Loaded!");
         loaded_plugins++;
       }
     }
     //(void)memset(buff, 0, sizeof(buff));
     // snprintf(buff, sizeof(buff), "Successfully loaded %d plugins",
     // loaded_plugins); notify(buff);
-    printf("Successfully loaded %d plugins\n", loaded_plugins);
+    klog_printf("Successfully loaded %d plugins\n", loaded_plugins);
     free_plugin_files(plugin_paths);
   }
   // raise(SIGKILL, getpid());
   // sceSystemServiceLoadExec("exit", NULL);
-  puts("============== Spawner (Bootstrapper) Finished =================");
+  klog_puts("============== Spawner (Bootstrapper) Finished =================");
 
   return 0;
 }

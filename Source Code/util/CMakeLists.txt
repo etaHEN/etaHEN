@@ -63,7 +63,33 @@ target_sources(${PROJECT_NAME} PRIVATE ${SrcFiles})
 target_include_directories(${PROJECT_NAME} PRIVATE "${D_CWD}/include")
 target_link_directories	(${PROJECT_NAME} PUBLIC "${PROJECT_ROOT}/lib")
 add_dependencies(${PROJECT_NAME} hijacker NineS)
-target_link_libraries	(${PROJECT_NAME} PUBLIC hijacker SceLibcInternal SceSystemService SceNet SceSysmodule SceUserService SceNetCtl SceSysCore ScePad SceVideoOut kernel_sys SceAppInstUtil NineS SceHttp2 SceNet SceSsl z minizip microhttpd)
+target_link_libraries(${PROJECT_NAME} PUBLIC 
+    hijacker 
+    SceLibcInternal 
+    SceSystemService 
+    SceNet 
+    SceSysmodule 
+    SceUserService 
+    SceNetCtl 
+    SceSysCore 
+    ScePad 
+    SceVideoOut 
+    kernel_sys 
+    SceAppInstUtil 
+    elfldr 
+    NineS 
+    SceHttp2 
+    SceSsl 
+    z 
+    curl 
+    SelfDecryptor
+    minizip 
+    microhttpd
+    psl          # For PSL (Public Suffix List) functions
+    zstd         # For ZSTD compression support
+    crypto       # For OpenSSL crypto functions (EVP_*, MD5_*, DES_*)
+    ssl          # For additional SSL functions
+)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Add post-build command
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

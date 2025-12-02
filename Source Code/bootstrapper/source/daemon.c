@@ -60,4 +60,17 @@ __asm__(".intel_syntax noprefix\n"
         ".align  4\n"
         "webman_icon_size:\n"
         ".int    webman_icon_end - webman_icon_start\n"
+
+    ".global kstuff_start\n"
+    ".type   kstuff_start, @object\n"
+    ".align  16\n"
+    "kstuff_start:\n"
+    ".incbin \"assets/kstuff.elf\"\n"
+    "kstuff_end:\n"
+    ".global kstuff_size\n"
+    ".type  kstuff_size, @object\n"
+    ".align  4\n"
+    "kstuff_size:\n"
+    ".int    kstuff_end - kstuff_start\n"
+
 );

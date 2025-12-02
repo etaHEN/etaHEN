@@ -86,13 +86,16 @@ MonoClass* MemoryStream_IO = nullptr;
 
 */
 std::atomic_bool install_thread_in_progress(false);
-std::atomic_bool download_kstuff_thread_in_progress(false);
 std::atomic_bool cheat_action_in_progress(false);
+std::atomic_bool download_kstuff_thread_in_progress(false);
+
 static std::string current_menu_tid;
 int usbpath();
 #define MAX_CHEATS 256
 
 bool is_plugin = false;
+bool is_su_menu = false;
+bool is_custom_pkg = false;
 bool is_debug_settings = false;
 bool is_cheats = false;
 bool is_auto_plugin = false;
@@ -108,6 +111,129 @@ bool game_shortcut_activated_media = false;
 extern int cheatEnabledMap[MAX_CHEATS]; // holds the current activated/deactivated cheats, used for onPreCreateHook
 std::string currentCheatTID; // holds current title ID being cheated, this is used to reset the map above
 
+void RemoveGameWidget(RemoveWidget widget) {
+
+    // Helper lambda to remove widgets by name
+    auto removeWidgets = [](const std::vector<const char*>& widgetNames) {
+        MonoClass* widgetClass = mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget");
+        MonoObject* rootWidget = Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget");
+        for (const char* name : widgetNames) {
+            MonoObject* child = Invoke<MonoObject*>(pui_img, widgetClass, rootWidget, "FindWidgetByName", mono_string_new(Root_Domain, name));
+            if (child) {
+                Invoke<void>(pui_img, widgetClass, child, "RemoveFromParent");
+            }
+        }
+    };
+
+    switch (widget) {
+    case REMOVE_GPU_OVERLAY:
+        removeWidgets({ "id_gpu_temp_value", "id_gpu_usage_value", "id_gpu_label" });
+        break;
+    case REMOVE_CPU_OVERLAY:
+        removeWidgets({ "id_cpu_label", "id_cpu_temp_value", "id_cpu_usage_value" });
+        break;
+    case REMOVE_RAM_OVERLAY:
+        removeWidgets({ "id_ram_label", "id_ram_value" });
+        break;
+    case REMOVE_FPS_OVERLAY:
+        removeWidgets({ "id_fps_label", "id_fps_value" });
+        break;
+    case REMOVE_IP_OVERLAY:
+		removeWidgets({ "id_ip_label", "id_ip_value" });
+		break;
+    case REMOVE_ALL_OVERLAYS:
+        removeWidgets({ "id_gpu_temp_value", "id_gpu_usage_value", "id_gpu_label",
+                        "id_cpu_label", "id_cpu_temp_value", "id_cpu_usage_value",
+                        "id_ram_label", "id_ram_value",
+                        "id_fps_label", "id_fps_value", 
+                        "id_ip_label", "id_ip_value" });
+		break;
+    case REMOVE_KSTUFF_DISABLED:
+		removeWidgets({ "id_kstuff_disabled_label" });
+		break;
+    }
+}
+
+void CreateGameWidget(CreateWidget widget) {
+    MonoObject* font = CreateUIFont(22, 0, 0);
+    MonoObject* rootWidget = Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget");
+
+    std::vector<WidgetConfig> configs;
+
+    switch (widget) {
+    case CREATE_GPU_OVERLAY:
+        configs = {
+            {"id_gpu_label", global_conf.overlay_gpu_x, global_conf.overlay_gpu_y, "GPU", 1, 0.0f, 1.0f, 0.0f, 1.0f},        // Green + Bold
+            {"id_gpu_temp_value", global_conf.overlay_gpu_x + 70.0f, global_conf.overlay_gpu_y, "--C", 0, 1.0f, 0.6f, 0.0f, 1.0f},   // Orange
+            {"id_gpu_usage_value", global_conf.overlay_gpu_x + 115.0f, global_conf.overlay_gpu_y, "--%", 0, 1.0f, 0.6f, 0.0f, 1.0f}  // Orange
+        };
+        break;
+
+    case CREATE_CPU_OVERLAY:
+        configs = {
+            {"id_cpu_label", global_conf.overlay_cpu_x, global_conf.overlay_cpu_y, "CPU", 1, 0.0f, 1.0f, 1.0f, 1.0f},        // Cyan + Bold
+            {"id_cpu_temp_value", global_conf.overlay_cpu_x + 70.0f, global_conf.overlay_cpu_y, "--C", 0, 1.0f, 0.6f, 0.0f, 1.0f},   // Orange
+            {"id_cpu_usage_value", global_conf.overlay_cpu_x + 115.0f, global_conf.overlay_cpu_y, "--%", 0, 1.0f, 0.6f, 0.0f, 1.0f}  // Orange
+        };
+        break;
+
+    case CREATE_RAM_OVERLAY:
+        configs = {
+            {"id_ram_label", global_conf.overlay_ram_x, global_conf.overlay_ram_y, "RAM", 1, 0.0f, 1.0f, 1.0f, 1.0f},        // Cyan + Bold
+            {"id_ram_value", global_conf.overlay_ram_x + 70.0f, global_conf.overlay_ram_y, "----- MB", 0, 1.0f, 0.6f, 0.0f, 1.0f}    // Orange
+        };
+        break;
+
+    case CREATE_FPS_OVERLAY:
+        configs = {
+            {"id_fps_label", global_conf.overlay_fps_x, global_conf.overlay_fps_y, "FPS:", 1, 1.0f, 0.0f, 1.0f, 1.0f},       // Magenta + Bold
+            {"id_fps_value", global_conf.overlay_fps_x + 70.0f, global_conf.overlay_fps_y, "--- FPS", 0, 1.0f, 1.0f, 1.0f, 1.0f}     // White
+        };
+        break;
+    case CREATE_IP_OVERLAY:
+		configs = {
+           { "id_ip_label", global_conf.overlay_ip_x, global_conf.overlay_ip_y, "PS5 IP:", 1, 0.0f, 1.0f, 0.0f, 1.0f},       // Green + Bold
+		   { "id_ip_value", global_conf.overlay_ip_x + 70.0f, global_conf.overlay_ip_y, "---.---.---.---", 0, 1.0f, 1.0f, 1.0f, 1.0f }     // White
+	     };
+	     break;
+    case CREATE_ALL_OVERLAYS:
+        configs = {
+            // GPU Overlay
+            {"id_gpu_label", global_conf.overlay_gpu_x, global_conf.overlay_gpu_y, "GPU", 1, 0.0f, 1.0f, 0.0f, 1.0f},        // Green + Bold
+            {"id_gpu_temp_value", global_conf.overlay_gpu_x + 70.0f, global_conf.overlay_gpu_y, "--C", 0, 1.0f, 0.6f, 0.0f, 1.0f},   // Orange
+            {"id_gpu_usage_value", global_conf.overlay_gpu_x + 115.0f, global_conf.overlay_gpu_y, "--%", 0, 1.0f, 0.6f, 0.0f, 1.0f},  // Orange
+            // CPU Overlay
+            {"id_cpu_label", global_conf.overlay_cpu_x, global_conf.overlay_cpu_y, "CPU", 1, 0.0f, 1.0f, 1.0f, 1.0f},        // Cyan + Bold
+            {"id_cpu_temp_value", global_conf.overlay_cpu_x + 70.0f, global_conf.overlay_cpu_y, "--C", 0, 1.0f, 0.6f, 0.0f, 1.0f},   // Orange
+            {"id_cpu_usage_value", global_conf.overlay_cpu_x + 115.0f, global_conf.overlay_cpu_y, "--%", 0, 1.0f, 0.6f, 0.0f, 1.0f},  // Orange
+            // RAM Overlay
+            {"id_ram_label", global_conf.overlay_ram_x, global_conf.overlay_ram_y, "RAM", 1, 0.0f, 1.0f, 1.0f, 1.0f},        // Cyan + Bold
+            {"id_ram_value", global_conf.overlay_ram_x + 70.0f, global_conf.overlay_ram_y, "----- MB", 0, 1.0f, 0.6f, 0.0f, 1.0f},    // Orange
+            // FPS Overlay
+			{"id_fps_label", global_conf.overlay_fps_x, global_conf.overlay_fps_y, "FPS:", 1, 1.0f, 0.0f, 1.0f, 1.0f},       // Magenta + Bold
+            {"id_fps_value", global_conf.overlay_fps_x + 70.0f, global_conf.overlay_fps_y, "--- FPS", 0, 1.0f, 1.0f, 1.0f, 1.0f},     // White
+
+            { "id_ip_label", global_conf.overlay_ip_x, global_conf.overlay_ip_y, "IP:", 1, 0.0f, 1.0f, 0.0f, 1.0f },       // Green + Bold
+            { "id_ip_value", global_conf.overlay_ip_x + 70.0f, global_conf.overlay_ip_y, "---.---.---.---", 0, 1.0f, 1.0f, 1.0f, 1.0f }     // White
+		};
+        break;
+      case CREATE_KSTUFF_DISABLED:
+          configs = {
+             {"id_kstuff_disabled_label", 850.0f, 20.0f, "KStuff is Disabled via Shortcut", 1, 1.0f, 0.0f, 0.0f, 1.0f} // Red + Bold
+          };
+		break;
+}
+
+
+
+    // Create and append all widgets
+    for (const auto& config : configs) {
+        MonoObject* label = CreateLabel(config.id, config.x, config.y, config.text, font,
+            config.bold, 0, config.r, config.g, config.b, config.a);
+        Widget_Append_Child(rootWidget, label);
+    }
+}
+
 extern "C"{
 int sceShellCoreUtilIsUsbMassStorageMounted(int num);
 int sceNetCtlGetInfo(int number,  SceNetCtlInfo *info);
@@ -120,7 +246,7 @@ MonoString *GetString_Hook(MonoObject *Instance, MonoString *str) {
       return nullptr;
     }
     std::string resourceName = Mono_to_String(str);
-  //  shellui_log("Resource Name: %s", resourceName.c_str());
+    shellui_log("Resource Name: %s", resourceName.c_str());
     if (resourceName == "msg_options") {
       return mono_string_new(Root_Domain, "PKG Installer Options");
     } else if (resourceName == "msg_installing") {
@@ -235,6 +361,8 @@ void CallDecrypt(unsigned char* bundleData, int bundleOffset, int bundleSize, in
   patch_bundle_strings(bundleData, realPayloadSize, *realPayloadSize);
 }
 
+
+
 void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user)
 {
   intptr_t sysentvec = 0;
@@ -321,11 +449,12 @@ void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user)
     break;
 
   case 0x9000000:
+  case 0x9050000:
   case 0x9200000:
   case 0x9400000:
   case 0x9600000:
-    sysentvec     = KERNEL_ADDRESS_DATA_BASE + 0xde0e18;
-    sysentvec_ps4 = KERNEL_ADDRESS_DATA_BASE + 0xde0f90;
+      sysentvec = KERNEL_ADDRESS_DATA_BASE + 0xdba648;
+      sysentvec_ps4 = KERNEL_ADDRESS_DATA_BASE + 0xdba7c0;
     success = true;
     break;
 
@@ -334,8 +463,8 @@ void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user)
   case 0x10200000:
   case 0x10400000:
   case 0x10600000:
-    sysentvec     = KERNEL_ADDRESS_DATA_BASE + 0xde0ee8;
-    sysentvec_ps4 = KERNEL_ADDRESS_DATA_BASE + 0xde1060;
+      sysentvec = KERNEL_ADDRESS_DATA_BASE + 0xdba6d8;
+      sysentvec_ps4 = KERNEL_ADDRESS_DATA_BASE + 0xdba850;
     success = true;
     break;
  
@@ -363,11 +492,18 @@ void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user)
     }
 
     if(notify_user){
-       if(ps5_unpaused && ps4_unpaused)
-           notify("[Kstuff] both sysentvecs unpaused");
-       else if(ps5_unpaused)
+        if (ps5_unpaused && ps4_unpaused) {
+            if (global_conf.overlay_kstuff) {
+                RemoveGameWidget(REMOVE_KSTUFF_DISABLED);
+                global_conf.overlay_kstuff_active = false;
+            }
+            else {
+                notify("[Kstuff] both sysentvecs unpaused");
+            }
+        }
+        else if(ps5_unpaused)
            notify("[Kstuff] PS5 sysentvec unpaused");
-       else if(ps4_unpaused)
+        else if(ps4_unpaused)
            notify("[Kstuff] PS4 sysentvec unpaused");
     } 
   }
@@ -394,13 +530,293 @@ void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user)
     kernel_setshort(sysentvec + 14, 0xffff);
     kernel_setshort(sysentvec_ps4 + 14, 0xffff);
 
-    if(notify_user)
-       notify("[Kstuff] both sysentvec paused");
+    if (notify_user) {
+        if (global_conf.overlay_kstuff) {
+            CreateGameWidget(CREATE_KSTUFF_DISABLED);
+            global_conf.overlay_kstuff_active = true;
+        }
+		else
+            notify("[Kstuff] both sysentvec paused");
+    } 
       
   }
 
 }
 
+extern "C" int sceKernelGetSocSensorTemperature(int numb, int *temp);
+
+extern "C" int sceNetGetIfList(SceNetIfName ifName_num, SceNetIfList* ifListArray, int n);
+
+MonoString* Hook_getIpMacHost(uint64_t inst, SceNetIfName name) {
+
+    char ip_address[32];
+    char full_text[400];
+    int temp = 0;
+
+
+    if(!inst) {
+        shellui_log("inst is null");
+    }
+
+  //  shellui_log("Hook_getIpMacHost: inst: %llx, name: %d", inst, name);
+
+    if (global_conf.kit_panel_info == 3) { // OFF
+
+        return getIpMacHost(inst, name);
+    }
+
+    SceNetIfList ifArray[1];
+    sceNetGetIfList(name, ifArray, 1);
+    
+    // Extract IP address bytes from the s_addr value
+    uint8_t bytes[4];
+    bytes[0] = (ifArray[0].addrs[0].addr.s_addr) & 0xFF;
+    bytes[1] = (ifArray[0].addrs[0].addr.s_addr >> 8) & 0xFF;
+    bytes[2] = (ifArray[0].addrs[0].addr.s_addr >> 16) & 0xFF;
+    bytes[3] = (ifArray[0].addrs[0].addr.s_addr >> 24) & 0xFF;
+    
+    // Format the IP address as a string
+    sprintf(ip_address, "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
+
+    if(name == SCE_NET_IF_NAME_DBG0 ){
+        return mono_string_new(Root_Domain, std::string(std::string("IP (DEV): ") + std::string(ip_address) + "\n").c_str());
+    }
+
+    //SCE_NET_IF_NAME_PHYSICAL
+
+    snprintf(full_text, sizeof(full_text), "etaHEN Version: %s\nIP: %s", etaHEN_VERSION, ip_address);
+    if (global_conf.kit_panel_info == 0 || sceKernelGetSocSensorTemperature(0, &temp)) { // ON (ONLY)
+        return mono_string_new(Root_Domain, full_text);
+    }
+
+
+    snprintf(full_text, sizeof(full_text), "%s\nAPU Temp: %d °C", full_text, temp);
+    if (global_conf.kit_panel_info == 1) { // ON + temp
+        return mono_string_new(Root_Domain, full_text);
+    }
+
+    snprintf(full_text, sizeof(full_text), "%s\nFTP: 1337\nDPI: 9090\nELF Loader: 9021", full_text);
+    return mono_string_new(Root_Domain, full_text);
+}
+
+
+int PupExpirationGetStatus_hook(PupStatus& status, uint32_t& time) {
+    int opt = global_conf.trial_soft_expire_time;
+
+    time = 0;
+    if (opt == TRIAL_EXPIREING_OFF) {
+        status = PUP_EXPIRATION_STATUS_OK;
+    }
+    else if (opt == TRIAL_EXPIREING_1_DAY) {
+        status = PUP_EXPIRATION_STATUS_EXPIRING;
+        time = PUP_EXPIRATION_1_DAY;
+    }
+    else if (opt == TRIAL_EXPIREING_2_DAYS) {
+        status = PUP_EXPIRATION_STATUS_EXPIRING;
+        time = PUP_EXPIRATION_MAX_EXPIRING_TIME;
+    }
+    else if (opt == TRIAL_EXPIRED) {
+        status = PUP_EXPIRATION_STATUS_EXPIRED;
+    }
+
+    return 0;
+}
+
+int Hook_GetHwSerialNumber(MonoArray* serial) {
+    // Ensure there's an array to work with
+
+ //   shellui_log("Hook_GetHwSerialNumber: serial: %llx", serial);
+    mono_array_set(serial, uint8_t, 0, '1');
+    mono_array_set(serial, uint8_t, 1, '3');
+    mono_array_set(serial, uint8_t, 2, '3');
+    mono_array_set(serial, uint8_t, 3, '7');
+
+    // Return a success status
+    return SCE_OK;
+}
+
+
+int Hook_GetHwModelName(MonoArray* serial) {
+    // Ensure there's an array to work with
+
+
+   // shellui_log("Hook_GetHwModelName: serial: %p", serial);
+    mono_array_set(serial, uint8_t, 0, 'e');
+    mono_array_set(serial, uint8_t, 1, 't');
+    mono_array_set(serial, uint8_t, 2, 'a');
+    mono_array_set(serial, uint8_t, 3, 'H');
+    mono_array_set(serial, uint8_t, 4, 'E');
+    mono_array_set(serial, uint8_t, 5, 'N');
+    mono_array_set(serial, uint8_t, 6, ' ');
+    
+#if SHELL_DEBUG == 1
+    mono_array_set(serial, uint8_t, 7, '(');
+    mono_array_set(serial, uint8_t, 8, 'D');
+    mono_array_set(serial, uint8_t, 9, 'E');
+    mono_array_set(serial, uint8_t, 10, 'V');
+    mono_array_set(serial, uint8_t, 11, ')');
+#else
+    mono_array_set(serial, uint8_t, 7, '(');
+    mono_array_set(serial, uint8_t, 8, 'K');
+    mono_array_set(serial, uint8_t, 9, 'I');
+    mono_array_set(serial, uint8_t, 10,'T');
+    mono_array_set(serial, uint8_t, 11, ')');
+#endif
+
+    // Return a success status
+    return SCE_OK;
+}
+
+
+/*================================NOT USED ================================*/
+int (*GetIfList)(SceNetIfName name, MonoArray* ifListArray, int n) = nullptr;
+
+int Hook_GetIfList(SceNetIfName name, MonoArray* ifListArray, int n) {
+
+   // shellui_log("Hook_GetIfList: name: %d, n: %d", name, n);
+    if(!ifListArray){
+        shellui_log("ifListArray is null");
+    
+    }
+
+    if(global_conf.kit_panel_info == 3) // OFF
+       return -1;
+    else
+		return GetIfList(name, ifListArray, n);
+}
+
+extern MonoString* (*getIpMacHost)(uint64_t inst, SceNetIfName name);
+
+MonoString* Hook_getIpMacHost(uint64_t inst, SceNetIfName name);
+
+bool Toggle_Devkit_Panel(int pot) {
+
+    // leaving this here but it crashes past 3.00
+    if (false) {
+        MonoAssembly* SysBridge_Assembly = mono_domain_assembly_open(Root_Domain, "/system_ex/common_ex/lib/Sce.Vsh.SysBridge.dll");
+        if(!SysBridge_Assembly){
+            shellui_log("Failed to open SysBridge Assembly");
+            return false;
+        }
+        MonoImage* SysBridge_img = mono_assembly_get_image(SysBridge_Assembly);
+        if (!SysBridge_img) {
+           shellui_log("Failed to get ReactNativeShellApp image");
+           return false;
+        }
+    
+        GetIfList = (int (*)(SceNetIfName name, MonoArray * ifListArray, int n))DetourFunction(Get_Address_of_Method(SysBridge_img, "Sce.Vsh.SysBridge", "Net", "GetIfList", 3), (void*)&Hook_GetIfList);
+        if (!GetIfList) {
+            notify("Failed to detour Func GetIfList");
+            return false;
+        }
+    }
+    
+    if(!getIpMacHost){
+        
+        MonoAssembly* Assembly = mono_domain_assembly_open(Root_Domain, "/system_ex/common_ex/lib/Sce.Vsh.ShellUI.ReactNativeShellApp.dll");
+        if(!Assembly) {
+            shellui_log("Failed to open ReactNativeShellApp Assembly");
+            return false;
+        }
+
+        MonoImage* ReactNativeShellApp_image = mono_assembly_get_image(Assembly);
+
+        if (!ReactNativeShellApp_image) {
+           shellui_log("Failed to get ReactNativeShellApp image");
+           return false;
+        }
+
+
+        getIpMacHost = (MonoString * (*)(uint64_t inst, SceNetIfName name))DetourFunction(Get_Address_of_Method(ReactNativeShellApp_image, "ReactNative.Components.ShellUI.HomeUI", "DebugInfoView", "getIpMacHost", 1), (void*)&Hook_getIpMacHost);
+        if (!getIpMacHost) {
+            notify("Failed to detour Func getIpMacHost");
+            return false;
+        }
+
+    }
+
+	global_conf.kit_panel_info = pot;
+
+    return true;
+
+}
+int DevActGetRemainingTime(int* time){
+    *time = INT_MAX-1;
+    return 0;
+} 
+
+//GetHwModelNam
+bool Start_Kit_Hooks() {
+    //Sce.Vsh.SysBridge.dll
+    MonoAssembly* KernelSysWrapper_Assembly = mono_domain_assembly_open(Root_Domain, "/system_ex/common_ex/lib/Sce.Vsh.KernelSysWrapper.dll");
+
+    MonoImage* KernelSysWrapper_img = mono_assembly_get_image(KernelSysWrapper_Assembly);
+
+    if (!KernelSysWrapper_img) {
+        shellui_log("Failed to get ReactNativeShellApp image");
+        return false;
+    }
+
+    if(if_exists("/system_tmp/actipatched")){
+       void* unused = DetourFunction(Get_Address_of_Method(KernelSysWrapper_img, "Sce.Vsh", "KernelSysWrapperSbl", "DevActGetRemainingTime", 1), (void*)&DevActGetRemainingTime);
+       if (!unused) {
+           notify("Failed to detour Func DevActGetRemainingTime");
+           return false;
+       }
+    }
+
+
+
+    PupExpirationGetStatus = (int (*)(PupStatus & status, uint32_t & time))DetourFunction(Get_Address_of_Method(KernelSysWrapper_img, "Sce.Vsh", "KernelSysWrapperSbl", "PupExpirationGetStatus", 2), (void*)&PupExpirationGetStatus_hook);
+    if (!PupExpirationGetStatus) {
+        notify("Failed to detour Func PupExpirationGetStatus");
+        return false;
+    }
+
+    MonoAssembly* SysBridge_Assembly = mono_domain_assembly_open(Root_Domain, "/system_ex/common_ex/lib/Sce.Vsh.SysBridge.dll");
+    MonoImage* SysBridge_img = mono_assembly_get_image(SysBridge_Assembly);
+    if (!SysBridge_img) {
+        shellui_log("Failed to get ReactNativeShellApp image");
+        return false;
+    }
+
+
+#if SHELL_DEBUG == 1
+    GetHwSerialNumber = (int (*)(MonoArray * serial))DetourFunction(Get_Address_of_Method(SysBridge_img, "Sce.Vsh.SysBridge", "Kernel", "GetHwSerialNumber", 1), (void*)&Hook_GetHwSerialNumber);
+    if (!GetHwSerialNumber) {
+        notify("Failed to detour Func GetHwSerialNumber");
+        return false;
+    }
+#endif
+
+  //GetManufacturingMode
+
+    GetHwModelName = (int (*)(MonoArray * serial))DetourFunction(Get_Address_of_Method(SysBridge_img, "Sce.Vsh.SysBridge", "Kernel", "GetHwModelName", 1), (void*)&Hook_GetHwModelName);
+    if (!GetHwModelName) {
+        notify("Failed to detour Func GetHwModelName");
+        return false;
+    }
+
+    MonoAssembly* Assembly = mono_domain_assembly_open(Root_Domain, "/system_ex/common_ex/lib/Sce.Vsh.ShellUI.ReactNativeShellApp.dll");
+
+    MonoImage* ReactNativeShellApp_image = mono_assembly_get_image(Assembly);
+
+    if (!ReactNativeShellApp_image) {
+        shellui_log("Failed to get ReactNativeShellApp image");
+        return false;
+    }
+
+    getIpMacHost = (MonoString * (*)(uint64_t inst, SceNetIfName name))DetourFunction(Get_Address_of_Method(ReactNativeShellApp_image, "ReactNative.Components.ShellUI.HomeUI", "DebugInfoView", "getIpMacHost", 1), (void*)&Hook_getIpMacHost);
+    if (!getIpMacHost) {
+        notify("Failed to detour Func getIpMacHost");
+        return false;
+    }
+
+    Toggle_Devkit_Panel(global_conf.kit_panel_info);
+	shellui_log("We are all set captain!");
+	return true;
+
+}
 std::atomic_int sockfd = -1;
 
 int connect_to_host(int port) {
@@ -614,20 +1030,6 @@ void* download_cheats_thr(void*){
     return nullptr;
 }
 
-void* kstuff_download_thread(void* args) {
-    if(download_kstuff_thread_in_progress){
-        notify("Download action already in progress, please wait for it to complete...");
-        pthread_exit(nullptr);
-        return nullptr;
-    }
-    download_kstuff_thread_in_progress = true;
-    IPC_Client& util_ipc = IPC_Client::getInstance(true);
-    shellui_log("Ret: 0x%X", util_ipc.DownloadKstuff());
-    download_kstuff_thread_in_progress = false;
-    pthread_exit(nullptr);
-    return nullptr;
-}
-
 void* reload_cheats_thr(void*){
     if(cheat_action_in_progress){
         notify("Cheat action already in progress, please wait for it to complete...");
@@ -644,6 +1046,19 @@ void* reload_cheats_thr(void*){
     return nullptr;
 }
 
+void* kstuff_download_thread(void* args) {
+    if (download_kstuff_thread_in_progress) {
+        notify("Download action already in progress, please wait for it to complete...");
+        pthread_exit(nullptr);
+        return nullptr;
+    }
+    download_kstuff_thread_in_progress = true;
+    IPC_Client& util_ipc = IPC_Client::getInstance(true);
+    shellui_log("Ret: 0x%X", util_ipc.DownloadKstuff());
+    download_kstuff_thread_in_progress = false;
+    pthread_exit(nullptr);
+    return nullptr;
+}
 
 int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
 {
@@ -658,12 +1073,23 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
     bool& sis_PS5Debug = global_conf.PS5Debug;
     bool& util_rest_kill = global_conf.util_rest_kill;
     bool& game_rest_kill = global_conf.game_rest_kill;
-  	int& trial_expire = global_conf.trial_soft_expire_time;
+    int& trial_expire = global_conf.trial_soft_expire_time;
     int& kit_panel = global_conf.kit_panel_info;
     uint64_t& delay_secs = global_conf.rest_delay_seconds;
-    bool &DPI_v2 = global_conf.DPI_v2;
-    int &kstuff_pause_opt = global_conf.kstuff_pause_opt;
-    bool &dis_tids = global_conf.display_tids;
+    bool& DPI_v2 = global_conf.DPI_v2;
+    int& kstuff_pause_opt = global_conf.kstuff_pause_opt;
+    bool& dis_tids = global_conf.display_tids;
+
+    // Define the array of IDs to exclude (you can put this at the top of your function or as a static/global)
+    const std::vector<std::string> excludedIds = {
+        "id_download_store",
+        "id_dl_cheats",
+        "id_reload_cheats",
+        "id_save_rp_info",
+        "id_download_kstuff",
+        "id_delete_kstuff"
+    };
+
 
     // shellui_log("OnPress_Hook: %p, %p, %p", Instance, element, e);
     if (!Instance || !element)
@@ -672,59 +1098,335 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
         shellui_log("[LM HOOK] OnPress_Hook: args are null");
 #endif
         return oOnPress(Instance, element, e);
-    }// m_Instance->GetProperty<long>(klass, "Length", MemoryStream_Instance);
-    //WriteLog(LL_Debug, "[LM HOOK] OnPress_Hook: Checking element type");
+    }
+
     std::string id = GetPropertyValue(element, "Id");
     std::string value = GetPropertyValue(element, "Value");
     std::string title = GetPropertyValue(element, "Title");
 
     bool is_game = (id.rfind("id_game_") != std::string::npos);
+    bool is_cust_pkg = (id.rfind("id_pkg_") != std::string::npos);
 
     if (id.rfind("id_cheat_") != std::string::npos && !is_current_game_open) {
         notify("The Game is not running, to activate cheats launch the game first");
-        #if SHELL_DEBUG==1
+#if SHELL_DEBUG==1
         shellui_log("Failed to activate %s, game is not running", id.c_str());
-        #endif
+#endif
         return oOnPress(Instance, element, e);
     }
-    
-   if(value.empty() && id != "id_download_kstuff" && id != "id_download_store" && id != "id_dl_cheats" && id != "id_reload_cheats" && !is_game && id != "id_save_rp_info"){
-    #if SHELL_DEBUG==1
-       shellui_log("[LM HOOK] OnPress_Hook: Id: %s has no value set", id.c_str());
-    #endif
-       return oOnPress(Instance, element, e);
-   }
 
-   
+    // Check if id is in the excluded list
+    bool isExcludedId = std::find(excludedIds.begin(), excludedIds.end(), id) != excludedIds.end();
+    if (value.empty() && !isExcludedId && !is_game && !is_cust_pkg) {
+#if SHELL_DEBUG==1
+        shellui_log("[LM HOOK] OnPress_Hook: Id: %s has no value set", id.c_str());
+#endif
+        return oOnPress(Instance, element, e);
+    }
+
+
     bool reload_main_settings = false;
     bool reload_util_settings = false;
 
 #if SHELL_DEBUG==1
-   shellui_log("[LM HOOK] OnPress_Hook: Id: %s, Value: %s", id.c_str(), value.c_str());
+    shellui_log("[LM HOOK] OnPress_Hook: Id: %s, Value: %s", id.c_str(), value.c_str());
 #endif
-    if (id == "id_auto_eject") {
+    if (id == "id_download_kstuff") {
+        pthread_t thr;
+        pthread_create(&thr, nullptr, kstuff_download_thread, nullptr);
+        pthread_detach(thr);
+    }
+    else if (id == "id_overlay_gpu") {
+		if (atoi(value.c_str()) == global_conf.overlay_gpu) {
+			return oOnPress(Instance, element, e);
+		}
+        if (!atoi(value.c_str())) {
+            RemoveGameWidget(REMOVE_GPU_OVERLAY);
+        }
+        else {
+			CreateGameWidget(CREATE_GPU_OVERLAY);
+        }
+
+        global_conf.overlay_gpu = !global_conf.overlay_gpu;
+    }
+    else if (id == "id_overlay_cpu") {
+		if (atoi(value.c_str()) == global_conf.overlay_cpu) {
+			return oOnPress(Instance, element, e);
+		}
+        if (!atoi(value.c_str())) {
+            if (!global_conf.all_cpu_usage) {
+				RemoveGameWidget(REMOVE_CPU_OVERLAY);
+            }
+            else {
+				notify("To disable CPU overlay, please disable the All CPU usage option first");
+				return oOnPress(Instance, element, e);
+            }
+        }
+        else {
+			CreateGameWidget(CREATE_CPU_OVERLAY);
+            
+        }
+
+        global_conf.overlay_cpu = !global_conf.overlay_cpu;
+    }
+    else if (id == "id_overlay_ram") {
+		if (atoi(value.c_str()) == global_conf.overlay_ram) {
+			return oOnPress(Instance, element, e);
+		}
+        if (!atoi(value.c_str())) {
+			RemoveGameWidget(REMOVE_RAM_OVERLAY);
+        }
+        else {
+			CreateGameWidget(CREATE_RAM_OVERLAY);   
+        }
+
+        global_conf.overlay_ram = !global_conf.overlay_ram;
+    }
+    else if (id == "id_overlay_fps") {
+		if (atoi(value.c_str()) == global_conf.overlay_fps) {
+			return oOnPress(Instance, element, e);
+		}
+        if (!atoi(value.c_str())) {
+			RemoveGameWidget(REMOVE_FPS_OVERLAY);
+        }
+        else {
+			CreateGameWidget(CREATE_FPS_OVERLAY);
+        }
+
+        global_conf.overlay_fps = !global_conf.overlay_fps;
+    }
+    else if (id == "id_overlay_ip") {
+		if (atoi(value.c_str()) == global_conf.overlay_ip) {
+			return oOnPress(Instance, element, e);
+		}
+        if (!atoi(value.c_str())) {
+            RemoveGameWidget(REMOVE_IP_OVERLAY);
+        }
+        else {
+            CreateGameWidget(CREATE_IP_OVERLAY);
+        }
+
+        global_conf.overlay_ip = !global_conf.overlay_ip;
+	}
+    else if (id == "id_overlay_kstuff") {
+        if (atoi(value.c_str()) == global_conf.overlay_kstuff) {
+            return oOnPress(Instance, element, e);
+        }
+        global_conf.overlay_kstuff = !global_conf.overlay_kstuff;
+        if(!global_conf.overlay_kstuff && global_conf.overlay_kstuff_active){
+            RemoveGameWidget(REMOVE_KSTUFF_DISABLED);
+            global_conf.overlay_kstuff_active = false;
+		}
+    }
+    else if (id == "id_all_cpu_usage") {
+        if (global_conf.all_cpu_usage == atoi(value.c_str())) {
+            return oOnPress(Instance, element, e);
+		}
+        if(!global_conf.overlay_cpu){
+            notify("To change CPU overlay mode, please enable the CPU overlay first");
+            return oOnPress(Instance, element, e);
+		}
+        global_conf.all_cpu_usage = !global_conf.all_cpu_usage;
+    }
+    else if (id == "id_overlay_change_pos") {
+
+        if((overlay_positions)atoi(value.c_str()) == global_conf.overlay_pos){
+            return oOnPress(Instance, element, e);
+		}
+
+        global_conf.overlay_pos = (overlay_positions)atoi(value.c_str());
+
+        if (global_conf.overlay_pos == OVERLAY_POS_TOP_LEFT) {
+            global_conf.overlay_fps_x = 10.0f;
+            global_conf.overlay_fps_y = 10.0f;
+
+            global_conf.overlay_gpu_x = 10.0f;
+            global_conf.overlay_gpu_y = 35.0f;
+
+            global_conf.overlay_cpu_x = 10.0f;
+            global_conf.overlay_cpu_y = 60.0f;
+
+            global_conf.overlay_ram_x = 10.0f;
+            global_conf.overlay_ram_y = 85.0f;
+
+            global_conf.overlay_ip_x = 10.0f;
+            global_conf.overlay_ip_y = 110.0f;
+        }
+        else if (global_conf.overlay_pos == OVERLAY_POS_BOTTOM_LEFT) {
+            global_conf.overlay_ram_x = 10.0f;
+            global_conf.overlay_ram_y = 970.0f;
+            global_conf.overlay_cpu_x = 10.0f;
+            global_conf.overlay_cpu_y = 990.0f;
+            global_conf.overlay_gpu_x = 10.0f;
+            global_conf.overlay_gpu_y = 1010.0f;
+            global_conf.overlay_fps_x = 10.0f;
+            global_conf.overlay_fps_y = 1030.0f;
+            global_conf.overlay_ip_x = 10.0f;
+            global_conf.overlay_ip_y = 1050.0f;
+        }
+        else if (global_conf.overlay_pos == OVERLAY_POS_TOP_RIGHT) {
+            global_conf.overlay_fps_x = 1720.0f;
+            global_conf.overlay_fps_y = 10.0f;
+            global_conf.overlay_gpu_x = 1720.0f;
+            global_conf.overlay_gpu_y = 35.0f;
+            global_conf.overlay_cpu_x = 1720.0f;
+            global_conf.overlay_cpu_y = 60.0f;
+            global_conf.overlay_ram_x = 1720.0f;
+            global_conf.overlay_ram_y = 85.0f;
+            global_conf.overlay_ip_x = 1670.0f;;
+            global_conf.overlay_ip_y = 110.0f;
+        }
+        else if (global_conf.overlay_pos == OVERLAY_POS_BOTTOM_RIGHT) {
+            global_conf.overlay_ram_x = 1720.0f;
+            global_conf.overlay_ram_y = 970.0f;
+            global_conf.overlay_cpu_x = 1720.0f;
+            global_conf.overlay_cpu_y = 990.0f;
+            global_conf.overlay_gpu_x = 1720.0f;
+            global_conf.overlay_gpu_y = 1010.0f;
+            global_conf.overlay_fps_x = 1720.0f;
+            global_conf.overlay_fps_y = 1030.0f;
+            global_conf.overlay_ip_x = 1670.0f;
+            global_conf.overlay_ip_y = 1050.0f;
+        }
+       
+        if (global_conf.overlay_cpu) {
+            RemoveGameWidget(REMOVE_CPU_OVERLAY);
+            CreateGameWidget(CREATE_CPU_OVERLAY);
+		}
+        if (global_conf.overlay_ram) {
+            RemoveGameWidget(REMOVE_RAM_OVERLAY);
+			CreateGameWidget(CREATE_RAM_OVERLAY);
+        }
+		if (global_conf.overlay_gpu) {
+			RemoveGameWidget(REMOVE_GPU_OVERLAY);
+			CreateGameWidget(CREATE_GPU_OVERLAY);
+        }
+        if (global_conf.overlay_fps) {
+            RemoveGameWidget(REMOVE_FPS_OVERLAY);
+            CreateGameWidget(CREATE_FPS_OVERLAY);
+        }
+        if (global_conf.overlay_ip) {
+            RemoveGameWidget(REMOVE_IP_OVERLAY);
+            CreateGameWidget(CREATE_IP_OVERLAY);
+		}
+    }
+    else if (id == "id_kstuff_autoload") {
+        if(atoi(value.c_str()) == if_exists("/user/data/etaHEN/no_kstuff")) {
+			return oOnPress(Instance, element, e);
+		}
+        if(atol(value.c_str())){
+			unlink("/user/data/etaHEN/no_kstuff");
+            notify("Kstuff will be loaded on next boot");
+        }
+        else{
+            touch_file("/user/data/etaHEN/no_kstuff");
+            notify("Kstuff will NOT be loaded on next boot");
+		}
+    }
+    else if (id == "id_delete_kstuff") {
+       unlink("/user/data/etaHEN/kstuff.elf");
+	   notify("The external kstuff download has been deleted");
+    }
+    else if (id == "id_change_custom_pkg_path") {
+		custom_pkg_path.path = value;
+	}
+    else if (id == "id_auto_eject") {
         global_conf.auto_eject_disc = atol(value.c_str());
     }
-    else if (id.rfind("id_plugin") != std::string::npos) {
-        if (!plugins_list.empty()) {
-            for (auto plugin : plugins_list) {
-                if (plugin.id == id) {
-                    int pid = sceSystemServiceGetAppId(plugin.tid.c_str());
-                    if (pid > 0 && !atol(value.c_str())) {
+      else if (id.rfind("id_plugin") != std::string::npos)
+    {
+        if (!plugins_list.empty())
+        {
+            for (auto plugin : plugins_list)
+            {
+                if (plugin.id == id)
+                {
+                    char pbuf[256];
+                    snprintf(pbuf, sizeof(pbuf), "/system_tmp/%s.PID", plugin.tid.c_str());
+
+                    int f = open(pbuf, O_RDONLY);
+                    int pid = -1;
+                    if (f >= 0)
+                    {
+                        char t[32];
+                        int r = read(f, t, sizeof(t) - 1);
+                        close(f);
+                        if (r > 0)
+                        {
+                            t[r] = 0;
+                            pid = atoi(t);
+                        }
+                    }
+
+                    if (pid > 0)
+                    {
+                        char name[32];
+                        if (sceKernelGetProcessName(pid, name) < 0)
+                        {
+                            shellui_log("Stale plugin PID file detected for %s, removing", plugin.tid.c_str());
+                            unlink(pbuf);
+                            pid = -1;
+                        }
+                    }
+
+                    if (pid > 0 && atol(value.c_str()) == 0)
+                    {
                         shellui_log("killing pid: 0x%X", pid);
                         IPC_Client::getInstance(false).ForceKillPID(pid);
-                        
-                        if(plugin.tid == "XMLS00001"){
-                          unlink("/system_tmp/patch_plugin");
-                        }
+
+                        if (plugin.tid == "XMLS00001")
+                            unlink("/system_tmp/patch_plugin");
+
+                        unlink(pbuf);
+
                         notify("%s killed", plugin.tid.c_str());
                     }
-                   else if(pid < 0 && atol(value.c_str())){
+                    else if (pid <= 0 && atol(value.c_str()) == 1)
+                    {
                         pthread_t thr;
                         shellui_log("Plugin %s not running", plugin.tid.c_str());
                         auto plugin_info = new Plugins(plugin);
-                        pthread_create(&thr, nullptr, load_plugin_thread, (void*)plugin_info);
+                        pthread_create(&thr, nullptr, load_plugin_thread, (void *)plugin_info);
                     }
+                }
+            }
+        }
+    }
+    else if (is_cust_pkg) {
+        if (custom_pkg_list.empty()) {
+            return oOnPress(Instance, element, e);
+        }
+        for (auto selected_pkgs : custom_pkg_list) {
+            if (selected_pkgs.id == id) {
+#if SHELL_DEBUG==1
+                shellui_log("[Clicked %s] %s path: %s", selected_pkgs.id.c_str(), selected_pkgs.name.c_str(), selected_pkgs.shellui_path.c_str());
+#endif
+                std::string dl_url;
+                if (0)
+                    dl_url = "http:///192.168.123.116:1304" + selected_pkgs.shellui_path;
+                else
+                    dl_url = (selected_pkgs.path.rfind("/data") != std::string::npos) ? selected_pkgs.shellui_path : selected_pkgs.path;
+
+                playgo_info_t playgoinfo = {};
+                pkg_info_t pkginfo = {};
+                pkg_metadata_t metainfo;
+                metainfo.playgo_scenario_id = "";
+                metainfo.content_name = "";
+                metainfo.content_id = "";
+                metainfo.icon_url = "";
+                metainfo.ex_uri = "";
+                metainfo.uri = dl_url.c_str();
+                
+
+                // msgok(MSG_DIALOG::NORMAL, "trying InstallByPackage");
+				shellui_log("Installing package from: %s", metainfo.uri);
+                int num = sceAppInstUtilInstallByPackage(&metainfo, &pkginfo, &playgoinfo);
+                if (num != 0) {
+					notify("Failed to install %s\nError: 0x%X", selected_pkgs.name.c_str(), num);
+                }
+                else
+                {
+                    notify("%s installation started successfully", selected_pkgs.name.c_str());
                 }
             }
         }
@@ -837,8 +1539,12 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
 
     }
     else if (id == "id_disp_titleids"){
-         dis_tids = !dis_tids;
-         ReloadRNPSApp("NPXS40002");
+        if (atol(value.c_str()) == dis_tids) {
+            shellui_log("Display TIDs already %s", dis_tids ? "Enabled" : "Disabled");
+            return oOnPress(Instance, element, e);
+        }
+        dis_tids = !dis_tids;
+        ReloadRNPSApp("NPXS40002");
     }
     else if (id == "id_lm_test")
     {
@@ -916,12 +1622,11 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
         pthread_detach(thr);
 
     }
-    else if (id == "id_download_kstuff") {
-        pthread_t thr;
-        pthread_create(&thr, nullptr, kstuff_download_thread, nullptr);
-        pthread_detach(thr);
-    }
     else if (id == "id_auto_itemzflow") {
+        if (atoi(value.c_str()) == Auto_ItemzFlow) {
+            shellui_log("ItemzFlow auto launch already %s", Auto_ItemzFlow ? "Enabled" : "Disabled");
+            return oOnPress(Instance, element, e);
+		}
         Auto_ItemzFlow = !Auto_ItemzFlow;
         //(global_conf.launch_itemzflow ? "ItemzFlow will automatically be opened after" : "ItemzFlow will not be launched on boot");
     }
@@ -932,6 +1637,18 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
         }
         global_conf.debug_app_jb_msg = !global_conf.debug_app_jb_msg;
         reload_main_settings = true;
+    }
+    else if (id == "id_debug_legacy_cmd") {
+        if (atoi(value.c_str()) == global_conf.debug_legacy_cmd_server) {
+            shellui_log("Debug cmd already %s", global_conf.debug_legacy_cmd_server ? "Enabled" : "Disabled");
+            return oOnPress(Instance, element, e);
+        }
+        global_conf.debug_legacy_cmd_server = !global_conf.debug_legacy_cmd_server;
+
+        if (IPC_Client::getInstance(true).ToggleSetting(BREW_UTIL_TOGGLE_LEGACY_CMD_SERVER, global_conf.debug_legacy_cmd_server) != IPC_Ret::NO_ERROR) {
+            notify(global_conf.debug_legacy_cmd_server ? "cmd Failed to Start ..." : "CMD Server Failed to Stop ...");
+            global_conf.debug_legacy_cmd_server = !global_conf.debug_legacy_cmd_server;
+        }//
     }
     else if (id == "id_activate_dumper") {
         int dump_option = atoi(value.c_str());
@@ -956,6 +1673,10 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
     else if (id == "id_kit_panel") {
 	    	kit_panel = atoi(value.c_str());
         shellui_log("Kit Panel: %d", kit_panel);
+
+        if (!Toggle_Devkit_Panel(kit_panel)) {
+		      	notify("Failed to toggle devkit panel");
+        }
     }
     else if (id == "id_data_sb") {
         if (atoi(value.c_str()) == Data_SB) {
@@ -1320,6 +2041,9 @@ uint64_t GetManifestResourceStream_Hook(uint64_t inst, MonoString* FileName) {
   	is_tk_menu = (resourceName == "Sce.Vsh.ShellUI.Legacy.src.Sce.Vsh.ShellUI.Settings.Plugins.testkit_menu.xml");
     is_hb_loader = (resourceName == "Sce.Vsh.ShellUI.Legacy.src.Sce.Vsh.ShellUI.Settings.Plugins.hb_loader.xml");
     is_plapps = (resourceName == "Sce.Vsh.ShellUI.Legacy.src.Sce.Vsh.ShellUI.Settings.Plugins.plapps.xml");
+	is_custom_pkg = (resourceName == "Sce.Vsh.ShellUI.Legacy.src.Sce.Vsh.ShellUI.Settings.Plugins.custompkginstaller.xml");
+	is_su_menu = (resourceName == "Sce.Vsh.ShellUI.Legacy.src.Sce.Vsh.ShellUI.Settings.Plugins.superuser.xml");
+    
     is_remote_play = (resourceName == remote_play_xml);
 
 
@@ -1338,7 +2062,7 @@ uint64_t GetManifestResourceStream_Hook(uint64_t inst, MonoString* FileName) {
         return GetManifestResourceStream_Original(inst, mono_string_new(Root_Domain, debug_settings_xml.c_str()));
     }
 
-    if (!is_plugin && !is_debug_settings && !is_cheats && !is_auto_plugin && !is_tk_menu && !is_remote_play && !is_hb_loader && !is_plapps) {
+    if (!is_plugin && !is_debug_settings && !is_cheats && !is_auto_plugin && !is_tk_menu && !is_remote_play && !is_hb_loader && !is_plapps && !is_su_menu && !is_custom_pkg) {
         return GetManifestResourceStream_Original(inst, FileName);
     }
 
@@ -1417,6 +2141,25 @@ uint64_t GetManifestResourceStream_Hook(uint64_t inst, MonoString* FileName) {
         }
         generate_plugin_xml(new_xml_string, true);
        // shellui_log("Plugins XML: %s", new_xml_string.c_str());
+    }
+    else if (is_custom_pkg) {
+
+        if (!custom_pkg_list.empty()) {
+            custom_pkg_list.clear();
+            //shellui_log("Custom Pkg Installers found");
+        }
+        generate_custom_pkg_xml(new_xml_string);
+       // shellui_log("Custom Pkg Installers XML: %s", new_xml_string.c_str());
+	}
+    else if (is_su_menu) {
+#if 0
+        if (!su_list.empty()) {
+            su_list.clear();
+            //shellui_log("Superuser apps found");
+        }
+        generate_su_xml(new_xml_string);
+        // shellui_log("Superuser apps XML: %s", new_xml_string.c_str());
+#endif
     }
     else if (is_cheats) {
         generate_cheats_xml(new_xml_string, current_menu_tid, (cheats_shortcut_activated || cheats_shortcut_activated_not_open), cheats_shortcut_activated_not_open);
@@ -1532,6 +2275,30 @@ int OnPreCreate_Hook(MonoObject* Instance, MonoObject* element) {
     if (id == "id_lm_test") {
         s_MonoText = mono_string_new(Root_Domain, "0");
     }
+    else if (id == "id_overlay_gpu") {
+		s_MonoText = mono_string_new(Root_Domain, global_conf.overlay_gpu ? "1" : "0");
+    }
+    else if (id == "id_overlay_fps") {
+		s_MonoText = mono_string_new(Root_Domain, global_conf.overlay_fps ? "1" : "0");
+    }
+	else if (id == "id_overlay_ip") {
+        s_MonoText = mono_string_new(Root_Domain, global_conf.overlay_ip ? "1" : "0");
+	}
+    else if (id == "id_overlay_kstuff") {
+        s_MonoText = mono_string_new(Root_Domain, global_conf.overlay_kstuff ? "1" : "0");
+    }
+    else if (id == "id_all_cpu_usage") {
+		s_MonoText = mono_string_new(Root_Domain, global_conf.all_cpu_usage ? "1" : "0");
+    }
+	else if (id == "id_overlay_cpu") {
+        s_MonoText = mono_string_new(Root_Domain, global_conf.overlay_cpu ? "1" : "0");
+	}
+    else if (id == "id_overlay_ram") {
+		s_MonoText = mono_string_new(Root_Domain, global_conf.overlay_ram ? "1" : "0");
+    }
+    else if (id == "id_kstuff_autoload") {
+		s_MonoText = mono_string_new(Root_Domain, !if_exists("/user/data/etaHEN/no_kstuff") ? "1" : "0");
+    }
     else if (id == "id_disp_titleids"){
         s_MonoText = mono_string_new(Root_Domain, global_conf.display_tids ? "1" : "0");
     }
@@ -1612,12 +2379,18 @@ int OnPreCreate_Hook(MonoObject* Instance, MonoObject* element) {
     else if (id == "id_debug_jb"){
        s_MonoText = mono_string_new(Root_Domain, global_conf.debug_app_jb_msg ? "1" : "0");
     }
+    else if (id == "id_debug_legacy_cmd") {
+        s_MonoText = mono_string_new(Root_Domain, global_conf.debug_legacy_cmd_server ? "1" : "0");
+    }
     else if (id == "id_custom_game_opts"){
        s_MonoText = mono_string_new(Root_Domain, global_conf.etaHEN_game_opts ? "1" : "0");
     }
     else if (id == "id_auto_eject") {
         s_MonoText = mono_string_new(Root_Domain, global_conf.auto_eject_disc ? "1" : "0");
     }
+    else if (id == "id_overlay_change_pos") {
+        s_MonoText = mono_string_new(Root_Domain, std::to_string(global_conf.overlay_pos).c_str());
+	}
 
     if(s_MonoText)
        mono_runtime_invoke(set_value_method, element, (void**)&s_MonoText, NULL);
@@ -1625,6 +2398,9 @@ int OnPreCreate_Hook(MonoObject* Instance, MonoObject* element) {
     return oOnPreCreate(Instance, element);
 }
 
+void CheckRunningOnMainThread() {
+	//notify("Main thread check called!");
+}
 void Patch_Main_thread_Check(MonoImage * image_core) {
 
     uint64_t real_addr = Get_Address_of_Method(image_core, "Sce.PlayStation.Core.Runtime", "Diagnostics", "CheckRunningOnMainThread", 0);
@@ -1638,8 +2414,7 @@ void Patch_Main_thread_Check(MonoImage * image_core) {
     shellui_log("changing permissions on (%p).", real_addr);
 #endif
     
-    uint8_t ret = 0xC3;
-    mdbg_copyin(getpid(), &ret, real_addr, sizeof(uint8_t));
+	DetourFunction(real_addr, (void*)&CheckRunningOnMainThread);
 #if SHELL_DEBUG==1
     shellui_log("Main thread check patched\n");
 #endif
@@ -1914,6 +2689,10 @@ bool handle_uri_boot_common(MonoString* uri, int opt, MonoString* titleIdForBoot
   
       if (kstuff_sc_activated) {
         //  shellui_log("Kstuff Shortcut Activated");
+        if(if_exists("/user/data/etaHEN/no_kstuff") || if_exists("/usb0/etaHEN/no_kstuff")){
+            notify("Kstuff auto-start is disabled, shortcut unable to continue...");
+            return result;
+		}
         pause_resume_kstuff(((global_conf.kstuff_pause_opt != NOT_PAUSED) ? NOT_PAUSED : BOTH_PAUSED), true);
         result.Buttons = None; // Clear the Select button to prevent triggering other actions
         //shellui_log("kstuff_pause_opt %d, %s", global_conf.kstuff_pause_opt, global_conf.kstuff_pause_opt != NOT_PAUSED ? "Resuming kstuff" : "Pausing kstuff");
@@ -2067,13 +2846,14 @@ void save_appid(int value, const char* filename) {
     std::ofstream file(filename);
     file << value;
 }
-
+bool app_launched = false;
 int LaunchApp(MonoString* titleId, uint64_t* args, int argsSize, LaunchAppParam *param){
 #if 1
    if(!if_exists("/system_tmp/patch_plugin")) {
      #if SHELL_DEBUG == 1
      shellui_log("patch plugin not running .. returning with orig");
      #endif
+	 app_launched = true;
      return LaunchApp_orig(titleId, args, argsSize, param);
    }
 #endif
@@ -2116,8 +2896,10 @@ int sceRegMgrGetInt_hook(long regid, int* out_val){
   #define visualize_fps_en 2013460993
   #define visualize_fps_pos 2013460995
   #define visualize_fps_port 2013460996
+  static int (*crash)() = nullptr;
 
   if(regid == visualize_fps_range) {
+      crash();
     shellui_log("visualize_fps_range regid %lx", regid);
     if (out_val) {
       *out_val = 2;
@@ -2125,6 +2907,8 @@ int sceRegMgrGetInt_hook(long regid, int* out_val){
     return 0;
   }
   else if(regid == visualize_fps_en) {
+
+	  crash();
     shellui_log("visualize_fps_en regid %lx", regid); 
     if (out_val) {
       *out_val = 3;
@@ -2132,6 +2916,7 @@ int sceRegMgrGetInt_hook(long regid, int* out_val){
     return 0;
   }
   else if(regid == visualize_fps_pos) {
+      crash();
     shellui_log("visualize_fps_pos regid %lx", regid);
     if (out_val) {
       *out_val = 1;
@@ -2139,6 +2924,7 @@ int sceRegMgrGetInt_hook(long regid, int* out_val){
     return 0;
   }
   else if(regid == visualize_fps_port) {
+      crash();
     shellui_log("visualize_fps_port regid %lx", regid);
     if (out_val) {
       *out_val = 0;

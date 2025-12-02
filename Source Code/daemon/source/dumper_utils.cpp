@@ -270,15 +270,6 @@ int decrypt_self(const char* path, const char* out_path) {
     etaHEN_log("decrypt_self: path=[%s]", path);
 
 
-    OrbisKernelSwVersion sys_ver;
-    sceKernelGetProsperoSystemSwVersion(&sys_ver);
-    bool alt_method = (sys_ver.version > 0x3000000);
-
-    if(alt_method){
-        etaHEN_log("decrypt_self: using alt method");
-        return decrypt_self_no_bypass(out_path);
-    }
-
     // Open SELF file
     self_fd = open(path, O_RDONLY);
     if (self_fd < 0) {
@@ -414,6 +405,15 @@ bool ends_with(const std::string& str, const std::string& suffix) {
 }
 #define SELF_ORBIS_MAGIC        0x1D3D154F
 bool decrypt_dir(const std::string& inputPath, const std::string& outputPath) {
+
+    OrbisKernelSwVersion sys_ver;
+    sceKernelGetProsperoSystemSwVersion(&sys_ver);
+    bool alt_method = (sys_ver.version > 0x3000000);
+
+    if (alt_method) {
+        etaHEN_log("decrypt_self: using alt method");
+        return decrypt_all(inputPath.c_str(), outputPath.c_str()) == 0;
+    }
     DIR* dir = opendir(inputPath.c_str());
     if (!dir){
 		etaHEN_log("Failed to open directory %s", inputPath.c_str());

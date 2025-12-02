@@ -33,6 +33,7 @@ along with this program; see the file COPYING. If not, see
 #include <sys/_pthreadtypes.h>
 #include <sys/signal.h>
 #include <netinet/in.h>
+#include <ps5/klog.h>
 
 // Project includes
 #include "../../include/backtrace.hpp"
@@ -90,9 +91,9 @@ extern "C" {
     int sceKernelLoadStartModule(const char *name, size_t argc, const void *argv, 
                                 uint32_t flags, void *unknown, int *result);
     int sceKernelDlsym(uint32_t lib, const char *name, void **fun);
-    int sceShellUIUtilInitialize(void);
+    //int sceShellUIUtilInitialize(void);
     int scePadClose(int handle);
-    int sceShellUIUtilLaunchByUri(const char *uri, SceShellUIUtilLaunchByUriParam *Param);
+    //int sceShellUIUtilLaunchByUri(const char *uri, SceShellUIUtilLaunchByUriParam *Param);
     int sceSystemStateMgrEnterStandby(void);
     int sceKernelMprotect(void *addr, size_t len, int prot);
     ssize_t _read(int, void *, size_t);
@@ -104,8 +105,6 @@ extern "C" {
     #include <ps5/payload.h>
     
     // External data
-    extern uint8_t kstuff_start[];
-    extern const unsigned int kstuff_size;
     extern uint8_t ps5debug_start[];
     extern const unsigned int ps5debug_size;
 
@@ -131,8 +130,6 @@ int ItemzLaunchByUri(const char *uri);
 bool enable_toolbox();
 void sig_handler(int signo);
 
-uint8_t *get_kstuff_address(bool *need_cleanup);
-bool is_elf_header(uint8_t *data);
 bool if_exists(const char *path);
 void *fifo_and_dumper_thread(void *args);
 void *Play_time_thread(void *args) noexcept;
@@ -173,6 +170,7 @@ void etaHEN_log(const char *fmt, ...) {
     }
 
     printf("[etaHEN]: %s", msg); // msg already includes a newline
+    klog_printf("%s", msg); // msg already includes a newline
 
     int fd = open("/data/etaHEN/etaHEN.log", O_WRONLY | O_CREAT | O_APPEND, 0777);
     if (fd < 0) {
@@ -238,7 +236,7 @@ void sig_handler(int signo) {
           "etaHEN has crashed ...\n\nPlease send /data/etaHEN/etaHEN_crash.log "
           "to the PKG-Zone discord: https://discord.gg/BduZHudWGj");
     etaHEN_log("main etaHEN has crashed ...");
-    printBacktraceForCrash();
+    //printBacktraceForCrash();
     exit(1);
 }
 
@@ -268,14 +266,31 @@ bool sceKernelIsTestKit() {
     return if_exists("/system/priv/lib/libSceDeci5Ttyp.sprx");
 }
 
-int ItemzLaunchByUri(const char *uri) {
+
+int (*sceShellUIUtilInitialize)(void) = nullptr;
+int (*sceShellUIUtilLaunchByUri)(const char* uri, SceShellUIUtilLaunchByUriParam* Param) = nullptr;
+#define KERNEL_DLSYM(handle, sym) \
+    (*(void**)&sym=(void*)kernel_dynlib_dlsym(-1, handle, #sym))
+int ItemzLaunchByUri(const char* uri) {
+    int libcmi = -1;
+
     if (!uri)
         return -1;
 
+    if ((libcmi = sceKernelLoadStartModule("/system_ex/common_ex/lib/libSceShellUIUtil.sprx", 0, 0, 0, 0, 0)) < 0 || libcmi < 0)
+        return -1;
+
+    KERNEL_DLSYM(libcmi, sceShellUIUtilInitialize);
+    KERNEL_DLSYM(libcmi, sceShellUIUtilLaunchByUri);
+    if (!sceShellUIUtilInitialize || !sceShellUIUtilLaunchByUri) {
+        etaHEN_log("failed to load libSceShellUIUtil.sprx");
+        return -1;
+    }
+    //
     SceShellUIUtilLaunchByUriParam Param;
     Param.size = sizeof(SceShellUIUtilLaunchByUriParam);
     sceShellUIUtilInitialize();
-    sceUserServiceGetForegroundUser((int *)&Param.userId);
+    sceUserServiceGetForegroundUser((int*)&Param.userId); // DONT CARE
 
     return sceShellUIUtilLaunchByUri(uri, &Param);
 }
@@ -315,7 +330,7 @@ int main() {
     etaHEN_log("=========== starting etaHEN (0x%X) ... ===========", fw_ver);
     bool has_hv_bypass = (sceKernelMprotect(&buz[0], 100, 0x7) == 0);
     bool is_lite = if_exists("/system_tmp/lite_mode");
-    bool toolbox_only = (fw_ver >= 0x900);
+    bool toolbox_only = (fw_ver >= 0x10000);
     bool no_ps5debug = (fw_ver >= 0x800);
 
 
@@ -337,46 +352,6 @@ int main() {
     pthread_create(&msg_thr, nullptr, IPC_loop, nullptr);
 
     etaHEN_log("is toolbox only: %s | ver: %x", toolbox_only ? "Yes" : "No", sys_ver.version);
-
-    sleep(15);
-
-
-    // Load kstuff if needed
-    bool dont_load_kstuff = (if_exists("/mnt/usb0/no_kstuff") || if_exists("/data/etaHEN/no_kstuff"));
-    if (dont_load_kstuff) {
-        notify(true, "kstuff loading disabled via file, homebrew and FPKGs will be disabled");
-        etaHEN_log("kstuff loading disabled in config.ini or no_kstuff file found");
-    }
-    if (!dont_load_kstuff && !has_hv_bypass && !is_lite && !toolbox_only) {
-        notify(true, "Loading kstuff ...");
-        bool cleanup_kstuff;
-        uint8_t *kstuff_address = get_kstuff_address(&cleanup_kstuff);
-
-        if (elfldr_spawn("/", STDOUT_FILENO, kstuff_address, "kstuff")) {
-            int wait = 0;
-            bool kstuff_not_loaded = false;
-            sleep(1);
-            while ((kstuff_not_loaded = sceKernelMprotect(&buz[0], 100, 0x7) < 0)) {
-                if(wait++ > 10){
-                    notify(true, "Failed to load kstuff, kstuff will be unavailable");
-                    break;
-                }
-                sleep(1);
-            }
-
-            if(!kstuff_not_loaded)
-               etaHEN_log("kstuff loaded");
-        }
-        else {
-            notify(true, "Failed to load kstuff, kstuff will be unavailable");
-        }
-
-        if (cleanup_kstuff) {
-            free(kstuff_address);
-        }
-    }
-
-    sleep(10);
     // Initialize toolbox if needed
     if (global_conf.toolbox_auto_start) {
         cmd_enable_toolbox();
@@ -395,7 +370,7 @@ int main() {
     // Display IP and service info
     std::string dpi_url = "Direct Package Installer V2: http://" + std::string(buz) + ":12800";
     notify(true,
-          "etaHEN 2.3b by LM (ko-fi.com/lightningmods)\n\nAIO HEN\n\nCurrent IP: %s\n\nFTP Port: "
+          "etaHEN 2.4b by LM\n\nAIO HEN\n\nCurrent IP: %s\n\nFTP Port: "
           "1337\nKlog Port: 9081\n%s",
           buz, global_conf.DPIv2 ? dpi_url.c_str() : "");
 
@@ -447,66 +422,4 @@ int main() {
 
     puts("main thread ended");
     return 0;
-}
-
-uint8_t *get_kstuff_address(bool *require_cleanup) {
-    const char *path = "/data/kstuff.elf";
-    long offset = 0;
-    off_t size;
-    uint8_t *address;
-    int fd;
-
-    if (!if_exists(path)) {
-        goto embedded_kstuff; 
-    }
-
-    fd = open(path, O_RDONLY);
-
-    if (fd <= 0) {
-        goto embedded_kstuff;          
-    }
-
-    size = lseek(fd, 0, SEEK_END);
-    address = (uint8_t*) malloc(size);
-
-    if (!address) {
-        goto close_fd;
-    }
-
-    lseek(fd, 0, SEEK_SET);
-
-    while (offset != size) {
-        int n = read(fd, address + offset, size - offset);
-
-        if (n <= 0)
-        {
-            goto free_mem;
-        }
-
-        offset += n;
-    }
-
-    if(!is_elf_header(address)) {
-        notify(true, "Kstuff '%s' doesn't have ELF header.", path);
-        goto free_mem;
-    }    
-
-    *require_cleanup = true;
-    notify(true, "Loading kstuff from: %s", path);
-    return address;
-
-free_mem:
-    free(address);
-close_fd:
-    close(fd);
-embedded_kstuff:
-    *require_cleanup = false;
-    return kstuff_start;
-}
-
-bool is_elf_header(uint8_t *data)
-{
-    uint8_t header[] = {0x7f, 'E', 'L', 'F'};
-
-    return !memcmp(data, header, 4);
 }

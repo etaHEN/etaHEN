@@ -29,11 +29,16 @@ along with this program; see the file COPYING. If not, see
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <ps5/kernel.h>
+#include <sys/ptrace.h>
+#include <sys/syscall.h>
+
 
 // External C declarations
 extern "C" {
     #include "common_utils.h"
     #include "global.h"
+    #include "pt.h"
 
     int sceUserServiceGetUserName(const int userId, char *userName, const size_t size);
     int _sceApplicationGetAppId(int pid, int32_t *appId);
@@ -336,20 +341,20 @@ static uint32_t pattern_to_byte(const char *pattern, uint8_t *bytes) {
     return count;
 }
 
-__attribute__((noinline)) static uint8_t *hexstrtochar2(const char *hexstr, size_t *size) {
+__attribute__((noinline)) static uint8_t* hexstrtochar2(const char* hexstr, size_t* size) {
     if (!hexstr || *hexstr == '\0' || !size || *size < 0) {
         return nullptr;
     }
-    
+
     uint32_t str_len = strlen(hexstr);
     size_t data_len = ((str_len + 1) / 2) * sizeof(uint8_t);
     *size = (str_len) * sizeof(uint8_t);
-    uint8_t *data = (uint8_t *)malloc(*size);
-    
+    uint8_t* data = (uint8_t*)malloc(*size);
+
     if (!data) {
         return nullptr;
     }
-    
+
     uint32_t j = 0; // hexstr position
     uint32_t i = 0; // data position
 
@@ -360,7 +365,7 @@ __attribute__((noinline)) static uint8_t *hexstrtochar2(const char *hexstr, size
 
     for (; j < str_len; j += 2, i++) {
         data[i] = (uint8_t)(hex_lut[(uint8_t)hexstr[j]] << 4) |
-                  hex_lut[(uint8_t)hexstr[j + 1]];
+            hex_lut[(uint8_t)hexstr[j + 1]];
     }
 
     *size = data_len;
@@ -370,18 +375,18 @@ __attribute__((noinline)) static uint8_t *hexstrtochar2(const char *hexstr, size
 void write_bytes32(pid_t pid, uint64_t addr, const uint32_t val) {
     etaHEN_log("addr: 0x%lx", addr);
     etaHEN_log("val: 0x%08x", val);
-    dbg::write(pid, addr, (void *)&val, sizeof(uint32_t));
+    dbg::write(pid, addr, (void*)&val, sizeof(uint32_t));
 }
 
-void write_bytes(pid_t pid, uint64_t addr, const char *hexString) {
-    uint8_t *byteArray = nullptr;
+void write_bytes(pid_t pid, uint64_t addr, const char* hexString) {
+    uint8_t* byteArray = nullptr;
     size_t bytesize = 0;
     byteArray = hexstrtochar2(hexString, &bytesize);
-    
+
     if (!byteArray) {
         return;
     }
-    
+
     etaHEN_log("addr: 0x%lx", addr);
     dbg::write(pid, addr, byteArray, bytesize);
 
@@ -391,7 +396,6 @@ void write_bytes(pid_t pid, uint64_t addr, const char *hexString) {
         free(byteArray);
     }
 }
-
 uint8_t *PatternScan(const uint64_t module_base, const uint64_t module_size, const char *signature) {
     etaHEN_log("module_base: 0x%lx module_size: 0x%lx", module_base, module_size);
     if (!module_base || !module_size) {
@@ -425,211 +429,208 @@ uint8_t *PatternScan(const uint64_t module_base, const uint64_t module_size, con
     
     return nullptr;
 }
-
 // Shell patch functions
 bool patchShellCore() {
     const UniquePtr<Hijacker> executable = Hijacker::getHijacker(get_shellcore_pid());
     uintptr_t shellcore_base = 0;
     uint64_t shellcore_size = 0;
-    
+
     if (executable) {
         shellcore_base = executable->getEboot()->getTextSection()->start();
         shellcore_size = executable->getEboot()->getTextSection()->sectionLength();
         g_ShellCorePid = executable->getPid();
-    } else {
+    }
+    else {
         notify(true, "SceShellCore not found");
         return false;
     }
-    
+
     bool status = false;
     (void)memset(backupShellCoreBytes, 0, sizeof(backupShellCoreBytes));
     shellcore_offset_patch = 0;
-    
+
     if (!shellcore_base || !shellcore_size) {
         return false;
     }
 
     etaHEN_log("allocating 0x%lx bytes", shellcore_size);
-    char *shellcore_copy = (char *)malloc(shellcore_size);
+    char* shellcore_copy = (char*)malloc(shellcore_size);
     etaHEN_log("shellcore_copy: 0x%p", shellcore_copy);
-    
+
     if (!shellcore_copy) {
         etaHEN_log("shellcore_copy is nullptr");
         return false;
     }
-    
+
     if (dbg::read(g_ShellCorePid, shellcore_base, shellcore_copy, shellcore_size)) {
-        uint8_t *shellcore_offset_data1 = nullptr;
-        uint8_t *shellcore_offset_data2 = nullptr;
-        uint8_t * patch_checker_offset = 0;
+        uint8_t* shellcore_offset_data1 = nullptr;
+        uint8_t* shellcore_offset_data2 = nullptr;
+        uint8_t* patch_checker_offset = 0;
 
         switch (getSystemSwVersion() & VERSION_MASK) {
-          case V200:
-          case V220:
-          case V225:
-          case V226:
-          case V230:
-          case V250:
-          case V270:
-              shellcore_offset_data1 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? ec 00 48 89 9d"
-              );
-              shellcore_offset_data2 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? b1 00 83 f8"
-              );
-              patch_checker_offset = PatternScan(
+        case V200:
+        case V220:
+        case V225:
+        case V226:
+        case V230:
+        case V250:
+        case V270:
+            shellcore_offset_data1 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? ec 00 48 89 9d"
+            );
+            shellcore_offset_data2 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? b1 00 83 f8"
+            );
+            patch_checker_offset = PatternScan(
                 (uint64_t)shellcore_copy, shellcore_size,
                 "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 83 e4 e0 48 81 ec 00 02 00 00 49"
-              );
-              break;
-          case V300:
-          case V310:
-          case V320:
-          case V321:
-              shellcore_offset_data1 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? 00 01 ?? 89 ?? 40"
-              );
-              shellcore_offset_data2 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? c5 00 83 f8 01 75 5f"
-              );
-              patch_checker_offset = PatternScan(
+            );
+            break;
+        case V300:
+        case V310:
+        case V320:
+        case V321:
+            shellcore_offset_data1 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? 00 01 ?? 89 ?? 40"
+            );
+            shellcore_offset_data2 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? c5 00 83 f8 01 75 5f"
+            );
+            patch_checker_offset = PatternScan(
                 (uint64_t)shellcore_copy, shellcore_size,
                 "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 83 e4 e0 48 81 ec 00 02 00 00 49"
-              );
-              break;
-          case V400:
-          case V402:
-          case V403:
-          case V450:
-          case V451:
-              shellcore_offset_data1 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? ?? ?? 4c 89 bd ?? ?? ?? ?? 48 89 9d ?? ?? ?? ??"
-              );
-              shellcore_offset_data2 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? ?? ?? 83 f8 01 75 ?? 41 80 3c 24 00"
-              );
-              patch_checker_offset = PatternScan(
+            );
+            break;
+        case V400:
+        case V402:
+        case V403:
+        case V450:
+        case V451:
+            shellcore_offset_data1 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? ?? ?? 4c 89 bd ?? ?? ?? ?? 48 89 9d ?? ?? ?? ??"
+            );
+            shellcore_offset_data2 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? ?? ?? 83 f8 01 75 ?? 41 80 3c 24 00"
+            );
+            patch_checker_offset = PatternScan(
                 (uint64_t)shellcore_copy, shellcore_size,
                 "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 83 e4 e0 48 81 ec 00 02 00 00 49"
-              );
-              break;
-          case V500:
-          case V502:
-          case V510:
-          case V550:
-              shellcore_offset_data1 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? fb 00 85 c0 75 0d e8 ?? ?? fb 00 85 c0 0f 84 47"
-              );
-              shellcore_offset_data2 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? c7 00 83 f8 01 75 5e"
-              );
-              patch_checker_offset = PatternScan(
+            );
+            break;
+        case V500:
+        case V502:
+        case V510:
+        case V550:
+            shellcore_offset_data1 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? fb 00 85 c0 75 0d e8 ?? ?? fb 00 85 c0 0f 84 47"
+            );
+            shellcore_offset_data2 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? c7 00 83 f8 01 75 5e"
+            );
+            patch_checker_offset = PatternScan(
                 (uint64_t)shellcore_copy, shellcore_size,
                 "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 83 e4 e0 48 81 ec e0 01 00 00 49"
-              );
-              break;
-          case V600:
-          case V602:
-          case V650:
-              shellcore_offset_data1 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? ?? 01 4c 89 a5 80"
-              );
-              shellcore_offset_data2 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? ?? 00 83 f8 01 75 66"
-              );
-              patch_checker_offset = PatternScan(
+            );
+            break;
+        case V600:
+        case V602:
+        case V650:
+            shellcore_offset_data1 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? ?? 01 4c 89 a5 80"
+            );
+            shellcore_offset_data2 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? ?? 00 83 f8 01 75 66"
+            );
+            patch_checker_offset = PatternScan(
                 (uint64_t)shellcore_copy, shellcore_size,
                 "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 83 e4 e0 48 81 ec e0 01 00 00 49"
-              );
-              break;
-          case V700: case V701: case V720: case V740: case V760: case V761:
-              shellcore_offset_data1 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? ?? 01 4c 89 b5 80"
-              );
-              shellcore_offset_data2 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? d7 00 83 f8 01 0f 85 cd"
-              );
-              patch_checker_offset = PatternScan(
+            );
+            break;
+        case V700: case V701: case V720: case V740: case V760: case V761:
+            shellcore_offset_data1 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? ?? 01 4c 89 b5 80"
+            );
+            shellcore_offset_data2 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? d7 00 83 f8 01 0f 85 cd"
+            );
+            patch_checker_offset = PatternScan(
                 (uint64_t)shellcore_copy, shellcore_size,
                 "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 83 e4 e0 48 81 ec e0 01 00 00 49 89 cd"
-              );
-              break;
-            case V800: case V820: case V840: case V860:
-              shellcore_offset_data1 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? ?? 01 85 c0 75 0d e8 ?? ?? ?? 01 85 c0 0f 84 c1"
-              );
-              shellcore_offset_data2 = PatternScan(
-                  (uint64_t)shellcore_copy, shellcore_size,
-                  "e8 ?? ?? dc 00 83 f8 01 0f"
-              );
-              patch_checker_offset = PatternScan(
+            );
+            break;
+        case V800: case V820:
+            shellcore_offset_data1 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? ?? 01 85 c0 75 0d e8 ?? ?? ?? 01 85 c0 0f 84 c1"
+            );
+            shellcore_offset_data2 = PatternScan(
+                (uint64_t)shellcore_copy, shellcore_size,
+                "e8 ?? ?? dc 00 83 f8 01 0f"
+            );
+            patch_checker_offset = PatternScan(
                 (uint64_t)shellcore_copy, shellcore_size,
                 "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec c8 01 00 00 49 89 cd"
-              );
-              break;
-          default:
-              etaHEN_log("Unknown firmware: 0x%08x", getSystemSwVersion());
-              break;
-      }
-      
+            );
+            break;
+        default:
+            etaHEN_log("Unknown firmware: 0x%08x", getSystemSwVersion());
+            break;
+        }
+
         etaHEN_log("shellcore_offset_data1: 0x%p", shellcore_offset_data1);
         etaHEN_log("shellcore_offset_data2: 0x%p", shellcore_offset_data2);
         etaHEN_log("patch_checker_offset: 0x%p", patch_checker_offset);
 
 
-       // uint64_t addr = shellcore_base +  (uint64_t)0x10C01F0;
-       // write_bytes(g_ShellCorePid, addr, "554889E5B8142618805DC3");
+        // uint64_t addr = shellcore_base +  (uint64_t)0x10C01F0;
+        // write_bytes(g_ShellCorePid, addr, "554889E5B8142618805DC3");
 
-        
+
+
+
         if (shellcore_offset_data1 && shellcore_offset_data2) {
             const uint64_t shellcore_offset_patch1 = shellcore_base +
                 ((uint64_t)shellcore_offset_data1 - (uint64_t)shellcore_copy);
             const uint64_t shellcore_offset_patch2 = shellcore_base +
                 ((uint64_t)shellcore_offset_data2 - (uint64_t)shellcore_copy);
-                
+
             write_bytes(g_ShellCorePid, shellcore_offset_patch1, "b801000000");
             write_bytes(g_ShellCorePid, shellcore_offset_patch2, "b801000000");
-            
+
             etaHEN_log("Patched shellcore for `/data` mount\n"
-                      "g_ShellCorePid: 0x%08x\n"
-                      "mkdir(\"/user/devbin\", 0777): 0x%08x\n"
-                      "mkdir(\"/user/devlog\", 0777): 0x%08x",
-                      g_ShellCorePid, mkdir("/user/devbin", 0777),
-                      mkdir("/user/devlog", 0777));
+                "g_ShellCorePid: 0x%08x\n"
+                "mkdir(\"/user/devbin\", 0777): 0x%08x\n"
+                "mkdir(\"/user/devlog\", 0777): 0x%08x",
+                g_ShellCorePid, mkdir("/user/devbin", 0777),
+                mkdir("/user/devlog", 0777));
         }
 
-        if(patch_checker_offset){
+        if (patch_checker_offset) {
             shellcore_offset_patch = shellcore_base +
                 ((uint64_t)patch_checker_offset - (uint64_t)shellcore_copy);
             etaHEN_log("shellcore_offset_patch: 0x%lx", shellcore_offset_patch);
             write_bytes(g_ShellCorePid, shellcore_offset_patch, "554889E5B8142618805DC3");
-        } else {
-            #if 1
-            notify(true, "shellcore offset is not found");
-            #endif
-            etaHEN_log("shellcore offset is not found");
         }
     }
-    
+
     if (shellcore_copy) {
         etaHEN_log("freeing shellcore_copy from 0x%p", shellcore_copy);
         free(shellcore_copy);
         shellcore_copy = nullptr;
     }
-    
+
     return status;
 }
 
@@ -749,8 +750,11 @@ void *runCommandNControlServer(void *) {
         return nullptr;
     }
 
+    if(global_conf.legacy_cmd_server)
+	   etaHEN_log("[Daemon LEGACY IPC] Server started on port 9028");
+
     // Accept clients
-    while (true) {
+    while (!global_conf.legacy_cmd_server_exit) {
         client = accept(s, 0, 0);
         if (errno == 0xA3) {
             pthread_mutex_lock(&jb_lock);
@@ -758,11 +762,11 @@ void *runCommandNControlServer(void *) {
             pthread_mutex_unlock(&jb_lock);
             break;
         }
-        if (client > 0) {
+        if (client > 0 && global_conf.legacy_cmd_server) {
             etaHEN_log("[Daemon IPC] Client connected");
             while ((readSize = recv(client, reinterpret_cast<void *>(&cmd),
                                   sizeof(cmd), MSG_NOSIGNAL)) > 0) {
-                if (cmd.magic == 0xDEADBEEF) {
+                if (cmd.magic == 0xDEADBEEF ) {
                     cmd_server(client, cmd);
                 } else {
                     etaHEN_log("[Daemon IPC] Invalid magic number");
@@ -778,6 +782,11 @@ void *runCommandNControlServer(void *) {
         close(s), s = -1;
 
     etaHEN_log("[Daemon IPC] Server stopped");
+
+    if (global_conf.legacy_cmd_server_exit) {
+        global_conf.legacy_cmd_server_exit = false;
+		return runCommandNControlServer(nullptr);
+    }
     return nullptr;
 }
 
@@ -877,5 +886,6 @@ void patch_checker() {
 }
 
 bool patchShellActi() {
-     return false;
+
+   return false;
 }

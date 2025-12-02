@@ -29,6 +29,13 @@ struct AppMessage {
     uint64_t timestamp;
 };
 
+
+typedef struct
+{
+    unsigned int size;
+    uint32_t userId;
+} SceShellUIUtilLaunchByUriParam;
+
 typedef struct
 {
     int32_t type;			 // 0x00
@@ -476,7 +483,29 @@ typedef struct app_info {
   char     unknown2[0x3c];
 } app_info_t;
 
+typedef struct pkg_metadata {
+    const char* uri;
+    const char* ex_uri;
+    const char* playgo_scenario_id;
+    const char* content_id;
+    const char* content_name;
+    const char* icon_url;
+} pkg_metadata_t;
 
+
+typedef struct pkg_info {
+    char content_id[48];
+    int type;
+    int platform;
+} pkg_info_t;
+
+
+typedef struct playgo_info {
+    char lang[8][30];
+    char scenario_ids[3][64];
+    char content_ids[64];
+    long unknown[810];
+} playgo_info_t;
 
 typedef uint32_t(*SceLncUtilLaunchAppType)(const char* tid, const char* argv[], LncAppParam* param);
 extern SceLncUtilLaunchAppType sceLncUtilLaunchApp_dyn;
@@ -568,7 +597,14 @@ extern MonoString *(*mono_object_to_string)(MonoObject *obj, MonoObject **exc);
 extern void (*mono_raise_exception)(MonoObject *exception);
 extern MonoString* (*getIpMacHost)(uint64_t inst, SceNetIfName name);
 
+
+extern int (*sceShellUIUtilInitialize)(void);
+extern int (*sceShellUIUtilLaunchByUri)(const char* uri, SceShellUIUtilLaunchByUriParam* Param);
+
 /* WRAPPERS */
 int sceSystemServiceGetAppId(const char * tid);
 void KillAllWithName(const char * name, int signal);
-extern "C" void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user);
+extern "C" {
+    void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user);
+    int sceAppInstUtilInstallByPackage(pkg_metadata* arg1, pkg_info* pkg_info, playgo_info* arg2);
+}

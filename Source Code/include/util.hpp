@@ -23,7 +23,7 @@ void printBacktrace();
 template <typename ...Types>
 [[noreturn]] static void fatalf(const char *msg, Types... values) {
 	__builtin_printf(msg, values...);
-	printBacktrace();
+	//printBacktrace();
 	exit(0);
 }
 #else
@@ -31,7 +31,7 @@ template <typename ...Types>
 template <typename ...Types>
 static void fatalf(const char *msg, Types... values) {
 	__builtin_printf(msg, values...);
-	printBacktrace();
+	//printBacktrace();
 }
 #endif
 #endif

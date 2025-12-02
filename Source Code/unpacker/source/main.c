@@ -18,10 +18,11 @@ along with this program; see the file COPYING. If not, see
 #include <ps5/klog.h>
 #include <stdint.h>
 #include <sys/stat.h>
-
-#include "elfldr.h"
-#include "pt.h"
-
+#include <stdbool.h>
+#include <string.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -57,27 +58,9 @@ typedef struct {
   char unkstr[1024];        // 0x82D
 } OrbisNotificationRequest; // Size = 0xC30
 
-typedef struct {
-  uint64_t pad0;
-  char version_str[0x1C];
-  uint32_t version;
-  uint64_t pad1;
-} OrbisKernelSwVersion;
-
-/**
- * sceKernelSpawn() is not available in libkernel_web, which is what is used by
- * the webkit exploit entry point. However, we do not actually use it initially,
- * hence we just define an empty stub to silence the linker.
- **/
-int sceKernelSpawn(int *pid, int dbg, const char *path, char *root,
-                   char *argv[]) {
-  return -1;
-}
-
 int sceKernelSendNotificationRequest(int32_t device,
                                      OrbisNotificationRequest *req, size_t size,
                                      int32_t blocking);
-int sceKernelGetProsperoSystemSwVersion(OrbisKernelSwVersion *sw);
 
 void notify(const char *text, ...) {
   OrbisNotificationRequest req;
@@ -104,7 +87,7 @@ __asm__(".intel_syntax noprefix\n"
         ".type   etahen_compressed, @object\n"
         ".align  16\n"
         "etahen_compressed:\n"
-        ".incbin \"../../bin/bootstrapper.elf.lzma\"\n"
+        ".incbin \"../bin/bootstrapper.elf.lzma\"\n"
         "etahen_compressed_end:\n"
         ".global etahen_compressed_size\n"
         ".type  etahen_compressed_size, @object\n"
@@ -115,24 +98,66 @@ __asm__(".intel_syntax noprefix\n"
         ".type   etahen_decompressed_size, @object\n"
         ".align  16\n"
         "etahen_decompressed_size:\n"
-        ".incbin \"../../bin/bootstrapper.elf.lzma.size\"\n");
+        ".incbin \"../bin/bootstrapper.elf.lzma.size\"\n");
 
 extern uint32_t etahen_compressed_size;
 extern uint8_t etahen_compressed[];
 extern uint8_t etahen_compressed_end[];
 extern uint8_t etahen_decompressed_size[];
 
+bool send_to_elfldr(const void* buffer, size_t buffer_size) {
+    int sockfd = -1;
+    struct sockaddr_in server_addr;
+    int bytes_sent = 0;
+    int total_sent = 0;
+
+    // Create socket
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        printf("Failed to create socket: %d\n", sockfd);
+        return false;
+    }
+
+    // Set socket options (optional - for faster reuse)
+    int opt = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    // Set up server address (always localhost)
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(9021);
+    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    // Connect to server
+    if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        printf("Failed to connect to localhost:9021\n");
+        close(sockfd);
+        return false;
+    }
+
+    printf("Connected to localhost:9021\n");
+
+    // Send all data in the buffer
+    const char* data_ptr = (const char*)buffer;
+    while (total_sent < buffer_size) {
+        bytes_sent = send(sockfd, data_ptr + total_sent, buffer_size - total_sent, 0);
+        if (bytes_sent <= 0) {
+            printf("Failed to send data: %d\n", bytes_sent);
+            close(sockfd);
+            return false;
+        }
+        total_sent += bytes_sent;
+    }
+
+    printf("Successfully sent %d bytes to localhost:9021\n", total_sent);
+
+    // Close socket
+    close(sockfd);
+
+    return true;
+}
+
 int main() {
-
-  pid_t mypid = getpid();
-  uint8_t qa_flags[16];
-  uint8_t caps[16];
-  uint64_t authid;
-  intptr_t vnode;
-  pid_t vpid;
-
-  OrbisKernelSwVersion sys_ver;
-  sceKernelGetProsperoSystemSwVersion(&sys_ver);
 
   if (etahen_compressed_size <= 0) {
     printf("Invalid etaHEN payload! unable to unpack it!");
@@ -181,69 +206,13 @@ int main() {
     close(fd);
   }
 
-  if ((sys_ver.version >> 16) < 0x700) {
-    // enable debugging with ptrace
-    if (kernel_get_qaflags(qa_flags)) {
-      notify("kernel_get_qa_flags failed");
-      return -1;
-    }
-    qa_flags[1] |= 0x03;
-    if (kernel_set_qaflags(qa_flags)) {
-      notify("kernel_set_qa_flags failed");
-      return -1;
-    }
-  }
-
-  // backup my privileges
-  if (!(vnode = kernel_get_proc_rootdir(mypid))) {
-    notify("kernel_get_proc_rootdir failed");
+  if(!send_to_elfldr(decompressed, decompress_size)) {
+    notify("The elfldr on port 9021 is REQUIRED for etaHEN make sure its running and try again!");
+    free(decompressed);
     return -1;
   }
 
-  if (kernel_get_ucred_caps(mypid, caps)) {
-    notify("kernel_get_ucred_caps failed");
-    return -1;
-  }
-  if (!(authid = kernel_get_ucred_authid(mypid))) {
-    notify("kernel_get_ucred_authid failed");
-    return -1;
-  }
-
-  // launch bootstrap.elf inside SceRedisServer
-  if ((vpid = elfldr_find_pid("SceRedisServer")) < 0) {
-    notify("elfldr_find_pid failed");
-    return -1;
-  } else if (elfldr_raise_privileges(mypid)) {
-    notify("Unable to raise privileges");
-    return -1;
-  } else if (pt_attach(vpid)) {
-    notify("pt_attach");
-    return -1;
-  } else {
-    if (elfldr_exec(vpid, STDOUT_FILENO, decompressed) != 0) {
-      notify("etaHEN failed to start: ELF");
-      return -1;
-    }
-  }
-
-  // restore my privileges
-  if (kernel_set_proc_jaildir(mypid, vnode)) {
-    notify("kernel_set_proc_jaildir failed");
-    return -1;
-  }
-  if (kernel_set_proc_rootdir(mypid, vnode)) {
-    notify("kernel_set_proc_rootdir failed");
-    return -1;
-  }
-  if (kernel_set_ucred_caps(mypid, caps)) {
-    notify("kernel_set_ucred_caps failed");
-    return -1;
-  }
-  if (kernel_set_ucred_authid(mypid, authid)) {
-    notify("kernel_set_ucred_authid failed");
-    return -1;
-  }
-
+ 
   free(decompressed);
 
   return 0;

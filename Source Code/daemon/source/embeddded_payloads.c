@@ -1,17 +1,5 @@
  __asm__(
 
-	".global kstuff_start\n"
-	".type   kstuff_start, @object\n"
-	".align  16\n"
-	"kstuff_start:\n"
-    	".incbin \"assets/kstuff.elf\"\n"
-	"kstuff_end:\n"
-	    ".global kstuff_size\n"
-	    ".type  kstuff_size, @object\n"
-	    ".align  4\n"
-	"kstuff_size:\n"
-    	".int    kstuff_end - kstuff_start\n"
-
 
     ".global ps5debug_start\n"
 	".type   ps5debug_start, @object\n"
@@ -37,5 +25,6 @@
 	    ".align  4\n"
 	"shellui_prx_size:\n"
     	".int    shellui_elf_end - shellui_elf_start\n"
+
 
 );
