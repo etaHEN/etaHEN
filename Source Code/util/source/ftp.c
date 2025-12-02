@@ -539,6 +539,7 @@ typedef struct
 
 bool is_2xx = false;
 int sceKernelGetProsperoSystemSwVersion(OrbisKernelSwVersion* sw);
+int decrypt_self_ftp(const char* input_file_path, const char* output_file_path);
 /// Reimplementation of missing functions --------------------------------------
 static int decrypt_temp(struct client_info *client, char *file_path, char *buf,
     size_t bufsize)
@@ -550,10 +551,6 @@ static int decrypt_temp(struct client_info *client, char *file_path, char *buf,
       return -1;
     }
 
-    if(!is_2xx){
-      etaHEN_log("Not 2xx so cant decrypt");
-      return -1;
-    }
     mkdir("/user/temp", 0777);
 
     // Create a unique file name.
@@ -570,7 +567,12 @@ static int decrypt_temp(struct client_info *client, char *file_path, char *buf,
 
     etaHEN_log("Decrypting file \"%s\", using temporary file \"%s\"...",
         file_path, temp_path);
-    decrypt_self(file_path, temp_path);
+
+    if (is_2xx) 
+       decrypt_self(file_path, temp_path);
+    else
+        decrypt_self_ftp(file_path, temp_path);
+
     strcpy(buf, temp_path);
 
     return 0;
@@ -643,7 +645,7 @@ static int decrypt_rnps(struct client_info *client, char *file_path, char *buf,
 
     // Decrypt the data
     if (rnps_decrypt_block(file_buf, (unsigned int)bytes_read) != 0) {
-        etaHEN_log("Failed DECRYPTION OF %S", file_buf);
+      //  etaHEN_log("Failed DECRYPTION OF %S", file_buf);
         result = -4;
         goto cleanup;
     }
@@ -1797,7 +1799,7 @@ static void cmd_RETR(struct client_info *client) {
  else
     send_text_file(client, path);
 #else
-   if (is_2xx && is_self(path)) {
+   if (is_self(path)) {
         if ( decrypt_temp(client, path, temp_path, sizeof(temp_path))) {
             send_ctrl_msg(client, RC_451);
             return;

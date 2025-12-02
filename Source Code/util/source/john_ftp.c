@@ -1220,7 +1220,7 @@ ftp_serve(uint16_t port) {
  * Launch payload.
  **/
 void *start_j_ftp(void* args) {
-  uint16_t port = 2121;
+  uint16_t port = 1337;
 
   printf("FTP server was compiled at %s %s\n", __DATE__, __TIME__);
 

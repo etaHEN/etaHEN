@@ -48,7 +48,8 @@ etaHENSettings global_conf;
 
 std::vector<GameEntry> games_list;
 std::vector<Plugins> plugins_list, auto_list;
-std::vector<Payloads_Apps> payloads_apps_list;
+std::vector<Payloads_Apps> payloads_apps_list, custom_pkg_list;
+Payloads_Apps custom_pkg_path = { .path = "/data/etaHEN/pkgs" };
 
 std::string running_tid;
 bool is_game_open = true;
@@ -61,15 +62,7 @@ extern bool game_shortcut_activated_media;
 
 // #include <user_service.h>
 
-typedef struct
-{
-  unsigned int size;
-  uint32_t userId;
-} SceShellUIUtilLaunchByUriParam;
-
 extern "C"{
-int sceShellUIUtilInitialize(void);
-int sceShellUIUtilLaunchByUri(const char *uri, SceShellUIUtilLaunchByUriParam *Param);
 int sceShellCoreUtilIsUsbMassStorageMounted(int num);
 }
 
@@ -189,6 +182,81 @@ MonoImage * getDLLimage(const char* dll_file){
   }
   return img;
 }
+
+
+MonoObject* New_Object(MonoClass* Klass)
+{
+    if (Klass == nullptr)
+    {
+        return nullptr;
+    }
+
+    return mono_object_new(Root_Domain, Klass);
+}
+
+MonoObject* CreateUIColor(float r, float g, float b, float a)
+{
+    MonoClass* uIColor = mono_class_from_name(pui_img, "Sce.PlayStation.PUI", "UIColor");
+
+    // Allocates memory for our new instance of a class.
+    MonoObject* uIColorInstance = New_Object(uIColor);
+    MonoObject* realInstance = (MonoObject*)mono_object_unbox(uIColorInstance);
+
+    Invoke<void>(pui_img, uIColor, realInstance, ".ctor", r, g, b, a);
+
+    return realInstance;
+}
+
+MonoObject* CreateUIFont(int size, int style, int weight)
+{
+    MonoClass* uIFont = mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "UIFont");
+
+    // Allocates memory for our new instance of a class.
+    MonoObject* uIFontInstance = New_Object(uIFont);
+    MonoObject* realInstance = (MonoObject*)mono_object_unbox(uIFontInstance);
+
+    Invoke<void>(pui_img, uIFont, realInstance, ".ctor", size, style, weight);
+
+    return realInstance;
+}
+
+MonoObject* CreateLabel(const char* name, float x, float y, const char* text, MonoObject* font, int horzAlign, int vertAlign, float r, float g, float b, float a)
+{
+    MonoClass* labelClass = mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Label");
+
+    // Allocates memory for our new instance of a class.
+    MonoObject* labelInstance = New_Object(labelClass);
+
+    // Call Constructor.
+    mono_runtime_object_init(labelInstance);
+
+    Set_Property(labelClass, labelInstance, "Name", mono_string_new(Root_Domain, name));
+    Set_Property(labelClass, labelInstance, "X", x);
+    Set_Property(labelClass, labelInstance, "Y", y);
+    Set_Property(labelClass, labelInstance, "Text", mono_string_new(Root_Domain, text));
+    Set_Property_Invoke(labelClass, labelInstance, "Font", font);
+    Set_Property(labelClass, labelInstance, "HorizontalAlignment", horzAlign);
+    Set_Property(labelClass, labelInstance, "VerticalAlignment", vertAlign);
+    Set_Property_Invoke(labelClass, labelInstance, "TextColor", CreateUIColor(r, g, b, a));
+
+    Set_Property(labelClass, labelInstance, "FitWidthToText", true);
+    Set_Property(labelClass, labelInstance, "FitHeightToText", true);
+
+    return labelInstance;
+}
+
+void Widget_Append_Child(MonoObject* widget, MonoObject* child)
+{
+    MonoClass* widgetClass = mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget");
+    MonoMethod* appendChild = mono_class_get_method_from_name(widgetClass, "AppendChild", 1);
+
+    void* args[1];
+    args[0] = child;
+
+    mono_runtime_invoke(appendChild, widget, args, nullptr);
+}
+
+
 
 int endswith(const char *string, const char *suffix)
 {
@@ -509,6 +577,25 @@ uint64_t Get_Address_of_Method(MonoImage *Assembly_Image, const char *Name_Space
   // return (uint64_t)mono_aot_get_method(Root_Domain, Method);
   return mono_compile_method(Method);
 }
+
+uint64_t Get_Address_of_Method(MonoImage* Assembly_Image, MonoClass* klass, const char* Method_Name, int Param_Count)
+{
+	if (!klass)
+	{
+		return 0;
+	}
+
+	MonoMethod* Method = mono_class_get_method_from_name(klass, Method_Name, Param_Count);
+
+	if (!Method)
+	{
+		return 0;
+	}
+
+	//return (uint64_t)mono_aot_get_method(mono_get_root_domain(), Method);
+  return mono_compile_method(Method);
+}
+
 MonoObject *Get_Instance(MonoClass *klass, const char *Instance)
 {
 
@@ -570,9 +657,17 @@ bool LoadSettings()
     const char *jb_debug_msg_str = ini_parser_get(&parser, "Settings.APP_JB_Debug_Msg", "0");
     const char *game_opts_str = ini_parser_get(&parser, "Settings.etaHEN_Game_Options", "1");
     const char *auto_eject_disc_str = ini_parser_get(&parser, "Settings.auto_eject_disc", "0");
+	const char* overlay_ram = ini_parser_get(&parser, "Settings.overlay_ram", "1");
+	const char* overlay_cpu = ini_parser_get(&parser, "Settings.overlay_cpu", "1");
+	const char* overlay_gpu = ini_parser_get(&parser, "Settings.overlay_gpu", "1");
+	const char* overlay_fps = ini_parser_get(&parser, "Settings.overlay_fps", "0");
+	const char* overlay_ip = ini_parser_get(&parser, "Settings.overlay_ip", "0");
+	const char* overlay_position = ini_parser_get(&parser, "Settings.Overlay_pos", "0"); // 0: Top-Left, 1: Top-Right, 2: Bottom-Left, 3: Bottom-Right
+	const char* overlay_kstuff = ini_parser_get(&parser, "Settings.overlay_kstuff", "0");
 
 
     // Check if the strings are not nullptr before converting
+	global_conf.overlay_kstuff = overlay_kstuff ? atoi(overlay_kstuff) : 0;
     global_conf.FTP = FTP_str ? atoi(FTP_str) : 0;
     global_conf.etaHEN_game_opts = game_opts_str ? atoi(game_opts_str) : 0;
     global_conf.display_tids = dip_tid ? atoi(dip_tid) : 0;
@@ -594,6 +689,14 @@ bool LoadSettings()
     global_conf.debug_app_jb_msg = jb_debug_msg_str ? atoi(jb_debug_msg_str) : 0;
     global_conf.disable_toolbox_auto_start_for_rest_mode = disable_toolbox_auto_start_for_rest_mode ? atoi(disable_toolbox_auto_start_for_rest_mode) : 0;
     global_conf.auto_eject_disc = auto_eject_disc_str ? atoi(auto_eject_disc_str) : 0;  
+	global_conf.overlay_ram = overlay_ram ? atoi(overlay_ram) : 1;
+	global_conf.overlay_cpu = overlay_cpu ? atoi(overlay_cpu) : 1;
+	global_conf.overlay_gpu = overlay_gpu ? atoi(overlay_gpu) : 1;
+	global_conf.overlay_fps = overlay_fps ? atoi(overlay_fps) : 0;
+	global_conf.overlay_ip = overlay_ip ? atoi(overlay_ip) : 0;
+
+    //apply ovelay pos  values
+
 
     // Shortcuts
     const char *cheats_shortcut_opt = ini_parser_get(&parser, "Settings.Cheats_shortcut_opt", "0");
@@ -605,6 +708,63 @@ bool LoadSettings()
     global_conf.toolbox_shortcut_opt = toolbox_shortcut_opt ? (Toolbox_Shortcut)atoi(toolbox_shortcut_opt) : TOOLBOX_SC_OFF;
     global_conf.games_shortcut_opt = games_shortcut_opt ? (Games_Shortcut)atoi(games_shortcut_opt) : GAMES_SC_OFF;
     global_conf.kstuff_shortcut_opt = kstuff_shortcut_opt ? (Kstuff_Shortcut)atoi(kstuff_shortcut_opt) : KSTUFF_SC_OFF;
+
+    global_conf.overlay_pos = overlay_position ? (overlay_positions)atoi(overlay_position) : OVERLAY_POS_TOP_LEFT;
+
+
+
+    if (global_conf.overlay_pos == OVERLAY_POS_TOP_LEFT) {
+        global_conf.overlay_fps_x = 10.0f;
+        global_conf.overlay_fps_y = 10.0f;
+
+        global_conf.overlay_gpu_x = 10.0f;
+        global_conf.overlay_gpu_y = 35.0f;
+
+        global_conf.overlay_cpu_x = 10.0f;
+        global_conf.overlay_cpu_y = 60.0f;
+
+        global_conf.overlay_ram_x = 10.0f;
+        global_conf.overlay_ram_y = 85.0f;
+
+        global_conf.overlay_ip_x = 10.0f;
+        global_conf.overlay_ip_y = 110.0f;
+    }
+    else if (global_conf.overlay_pos == OVERLAY_POS_BOTTOM_LEFT) {
+        global_conf.overlay_ram_x = 10.0f;
+        global_conf.overlay_ram_y = 970.0f;
+        global_conf.overlay_cpu_x = 10.0f;
+        global_conf.overlay_cpu_y = 990.0f;
+        global_conf.overlay_gpu_x = 10.0f;
+        global_conf.overlay_gpu_y = 1010.0f;
+        global_conf.overlay_fps_x = 10.0f;
+        global_conf.overlay_fps_y = 1030.0f;
+        global_conf.overlay_ip_x = 10.0f;
+        global_conf.overlay_ip_y = 1050.0f;
+    }
+    else if (global_conf.overlay_pos == OVERLAY_POS_TOP_RIGHT) {
+        global_conf.overlay_fps_x = 1720.0f;
+        global_conf.overlay_fps_y = 10.0f;
+        global_conf.overlay_gpu_x = 1720.0f;
+        global_conf.overlay_gpu_y = 35.0f;
+        global_conf.overlay_cpu_x = 1720.0f;
+        global_conf.overlay_cpu_y = 60.0f;
+        global_conf.overlay_ram_x = 1720.0f;
+        global_conf.overlay_ram_y = 85.0f;
+        global_conf.overlay_ip_x = 1670.0f;
+        global_conf.overlay_ip_y = 110.0f;
+    }
+    else if (global_conf.overlay_pos == OVERLAY_POS_BOTTOM_RIGHT) {
+        global_conf.overlay_ram_x = 1720.0f;
+        global_conf.overlay_ram_y = 970.0f;
+        global_conf.overlay_cpu_x = 1720.0f;
+        global_conf.overlay_cpu_y = 990.0f;
+        global_conf.overlay_gpu_x = 1720.0f;
+        global_conf.overlay_gpu_y = 1010.0f;
+        global_conf.overlay_fps_x = 1720.0f;
+        global_conf.overlay_fps_y = 1030.0f;
+        global_conf.overlay_ip_x = 1670.0f;
+        global_conf.overlay_ip_y = 1050.0f;
+    }
 
 
     // global_conf.FTP = FTP;
@@ -641,11 +801,20 @@ bool SaveSettings()
   buff += "Display_tids=" + std::to_string(global_conf.display_tids) + "\n";
   buff += "APP_JB_Debug_Msg=" + std::to_string(global_conf.debug_app_jb_msg) + "\n";
   buff += "etaHEN_Game_Options=" + std::to_string(global_conf.etaHEN_game_opts) + "\n";
+  buff += "auto_eject_disc=" + std::to_string(global_conf.auto_eject_disc) + "\n";
+  buff += "overlay_ram=" + std::to_string(global_conf.overlay_ram) + "\n";
+  buff += "overlay_cpu=" + std::to_string(global_conf.overlay_cpu) + "\n";
+  buff += "overlay_gpu=" + std::to_string(global_conf.overlay_gpu) + "\n";
+  buff += "overlay_fps=" + std::to_string(global_conf.overlay_fps) + "\n";
+  buff += "overlay_ip=" + std::to_string(global_conf.overlay_ip) + "\n";
+  buff += "overlay_kstuff=" + std::to_string(global_conf.overlay_kstuff) + "\n";
   //shortcuts
   buff += "Cheats_shortcut_opt=" + std::to_string(global_conf.cheats_shortcut_opt) + "\n";
   buff += "Toolbox_shortcut_opt=" + std::to_string(global_conf.toolbox_shortcut_opt) + "\n";
   buff += "Games_shortcut_opt=" + std::to_string(global_conf.games_shortcut_opt) + "\n";
   buff += "Kstuff_shortcut_opt=" + std::to_string(global_conf.kstuff_shortcut_opt) + "\n";
+
+  buff += "Overlay_pos=" + std::to_string(global_conf.overlay_pos) + "\n";
   // Open the file for writing
   int fd = open(INI_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0777);
   if (fd >= 0)
@@ -856,6 +1025,72 @@ close:
   // shellui_log("%s\n", xml_buffer.c_str());
 }
 
+void generate_custom_pkg_xml(std::string& xml_buffer)
+{
+    std::string converted = custom_pkg_path.path;
+
+    // Replace /mnt/xxx with /xxx
+    size_t pos = converted.find("/mnt/");
+    if (pos != std::string::npos) {
+        converted.replace(pos, 5, "/");  // Replace "/mnt/" with "/"
+    }
+
+    // Replace /data with /user/data
+    pos = 0;
+    while ((pos = converted.find("/data", pos)) != std::string::npos) {
+        converted.replace(pos, 5, "/user/data");
+        pos += 10;  // Skip past the replacement
+    }
+
+    custom_pkg_path.shellui_path = converted;
+
+    shellui_log("Custom PKG Path for ShellUI: %s", custom_pkg_path.shellui_path.c_str());
+
+    struct dirent* entry;
+    int pkg_id = 1;
+    int pkg_count = 0;
+
+    xml_buffer = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n"
+        "<system_settings version=\"1.0\" plugin=\"debug_settings_plugin\">\n"
+        "\n";
+
+    xml_buffer += "<setting_list id=\"custom_pkg_install\" title=\"★ Custom PKG Installer ( " + custom_pkg_path.path + " )\">\n";
+    xml_buffer += "<text_field id=\"id_change_custom_pkg_path\" title=\"Custom PKG Search Path\" keyboard_type=\"url\" confirm=\"Back out and re-select to refresh\" min_length=\"1\" max_length=\"255\"/>\n";
+
+    DIR* dir = opendir(custom_pkg_path.shellui_path.c_str());
+    if (!dir) {
+        shellui_log("Failed to open custom PKG directory: %s", custom_pkg_path.shellui_path.c_str());
+        xml_buffer += "<label id=\"id_no_pkgs\" title=\"No PKGs found - Path: " + custom_pkg_path.path + "\"/>\n";
+        xml_buffer += "</setting_list>\n</system_settings>";
+        return;
+    }
+
+    while ((entry = readdir(dir)) != nullptr) {
+        if (strstr(entry->d_name, ".pkg") != nullptr) {
+            std::string pkg_path = std::string(custom_pkg_path.path) + "/" + entry->d_name;
+            std::string id = "id_pkg_" + std::to_string(pkg_id++);
+
+            xml_buffer += "<button id=\"" + id + "\" title=\"" + entry->d_name + "\" description=\"" + pkg_path + "\"/>\n";
+            pkg_count++;
+
+            Payloads_Apps new_pkg;
+            new_pkg.name = entry->d_name;
+            new_pkg.path = pkg_path;
+            new_pkg.shellui_path = std::string(custom_pkg_path.shellui_path) + "/" + entry->d_name;
+            new_pkg.id = id;
+            custom_pkg_list.push_back(new_pkg);
+
+            shellui_log("Found PKG: %s", pkg_path.c_str());
+        }
+    }
+    closedir(dir);
+
+    if (pkg_count == 0) {
+        xml_buffer += "<label id=\"id_no_pkgs\" title=\"No PKGs found - Path: " + custom_pkg_path.path + "\"/>\n";
+    }
+
+    xml_buffer += "</setting_list>\n</system_settings>";
+}
 void generate_plugin_xml(std::string &xml_buffer, bool plugins_xml)
 {
   struct dirent *entry;

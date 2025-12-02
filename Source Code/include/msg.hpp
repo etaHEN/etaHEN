@@ -37,6 +37,7 @@ enum DaemonCommands : int {
   BREW_LAST_RET,
   BREW_TESTKIT_CHECK,
   BREW_ENABLE_TOOLBOX,   
+  BREW_CHMOD_DIR,
 
   BREW_UTIL_TEST_CONNECTION = 0x8000000,
   BREW_UTIL_RETURN_VALUE = 0x8000002,
@@ -52,6 +53,7 @@ enum DaemonCommands : int {
   BREW_UTIL_DOWNLOAD_CHEATS,
   BREW_UTIL_RELOAD_CHEATS,
   BREW_UTIL_DOWNLOAD_KSTUFF,
+  BREW_UTIL_TOGGLE_LEGACY_CMD_SERVER,
 
   // Special command to launch Johns elfldr for lite mode
   BREW_UTIL_LAUNCH_ELFLDR = 0xE1F1D8, // not used if already running

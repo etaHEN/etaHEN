@@ -71,6 +71,36 @@ enum TrailExpireOpt {
     TRIAL_EXPIRED,
 };
 
+enum RemoveWidget {
+    REMOVE_GPU_OVERLAY,
+    REMOVE_CPU_OVERLAY,
+    REMOVE_RAM_OVERLAY,
+    REMOVE_FPS_OVERLAY,
+    REMOVE_IP_OVERLAY,
+    REMOVE_ALL_OVERLAYS,
+	REMOVE_KSTUFF_DISABLED
+};
+
+enum CreateWidget {
+    CREATE_GPU_OVERLAY,
+    CREATE_CPU_OVERLAY,
+    CREATE_RAM_OVERLAY,
+    CREATE_FPS_OVERLAY,
+    CREATE_IP_OVERLAY,
+    CREATE_ALL_OVERLAYS,
+    CREATE_KSTUFF_DISABLED
+};
+
+struct WidgetConfig {
+    const char* id;
+    float x, y;
+    const char* text;
+    int bold;
+    float r, g, b, a;
+};
+
+void RemoveGameWidget(RemoveWidget widget);
+void CreateGameWidget(CreateWidget widget);
 
 struct LaunchAppParam
 {
@@ -157,6 +187,13 @@ enum Cheats_Shortcut{
     KSTUFF_SINGLE_SHARE,
  };
 
+ enum overlay_positions{
+    OVERLAY_POS_TOP_LEFT = 0,
+    OVERLAY_POS_TOP_RIGHT,
+    OVERLAY_POS_BOTTOM_LEFT,
+    OVERLAY_POS_BOTTOM_RIGHT
+ };
+
 typedef struct etaHENSettings_t
 {
     bool FTP = true;
@@ -177,13 +214,22 @@ typedef struct etaHENSettings_t
     bool disable_toolbox_auto_start_for_rest_mode = false;
     bool display_tids = false;
     bool debug_app_jb_msg = false;
+    bool debug_legacy_cmd_server = false;
     bool etaHEN_game_opts = true;
     bool auto_eject_disc = false;
+    bool overlay_gpu = true;
+    bool overlay_cpu = true;
+	bool overlay_ram = true;
+    bool overlay_fps = false;
+    bool overlay_ip = false;
+    bool overlay_kstuff = false;
+    bool overlay_kstuff_active = false;
+    bool all_cpu_usage = false;
     int start_option = 0;
     int trial_soft_expire_time = 0;
     int kit_panel_info = 0;
     int kstuff_pause_opt = NOT_PAUSED;
-    uint64_t rest_delay_seconds;
+    uint64_t rest_delay_seconds = 0;
     
     // Shortcuts
     Cheats_Shortcut cheats_shortcut_opt = CHEATS_SC_OFF;
@@ -191,6 +237,23 @@ typedef struct etaHENSettings_t
     Games_Shortcut games_shortcut_opt = GAMES_SC_OFF;
     Kstuff_Shortcut kstuff_shortcut_opt = KSTUFF_SC_OFF;
 
+	//floats for overlays
+    float overlay_gpu_x = 10.0f;
+    float overlay_gpu_y = 10.0f;
+
+    float overlay_cpu_x = 10.0f;
+    float overlay_cpu_y = 35.0f;
+
+    float overlay_ram_x = 10.0f;
+    float overlay_ram_y = 60.0f;
+
+    float overlay_fps_x = 10.0f;
+    float overlay_fps_y = 85.0f;
+
+	float overlay_ip_x = 10.0f;
+	float overlay_ip_y = 110.0f;
+
+    overlay_positions overlay_pos = OVERLAY_POS_TOP_LEFT; //0=top left, 1=top right, 2=bottom left, 3=bottom right
 
 } etaHENSettings;
 
@@ -337,6 +400,7 @@ void generate_plugin_xml(std::string& xml_buffer, bool plugins_xml);
 void generate_remote_play_xml(std::string& xml_buffer);
 void Patch_Main_thread_Check(MonoImage * image_core);
 uint64_t Get_Address_of_Method(MonoImage* Assembly_Image, const char* Name_Space, const char* Class_Name, const char* Method_Name, int Param_Count);
+uint64_t Get_Address_of_Method(MonoImage* Assembly_Image, MonoClass* klass, const char* Method_Name, int Param_Count);
 uint64_t GetManifestResourceStream_Hook(uint64_t inst, MonoString* FileName);
 uint64_t GetManifestResourceInternal_Hook(MonoObject* instance, MonoString* name, int* size, MonoObject& module);
 MonoObject* New_Mono_XML_From_String(std::string xml_doc);
@@ -349,6 +413,148 @@ bool SetVersionString(const char* str);
 int SendShelluiNotify();
 void Terminate();
 bool Start_Kit_Hooks();
+extern int (*Orig_AppInstUtilInstallByPackage)(MonoString* uri, MonoString* ex_uri, MonoString* playgo_scenario_id, MonoString* content_id, MonoString* content_name, MonoString* icon_url, uint32_t slot, bool is_playgo_enabled, MonoObject* pkg_info, MonoArray* languages, MonoArray* playgo_scenario_ids, MonoArray* content_ids);
+
+template <typename result>
+result Get_Property(MonoClass* Klass, MonoObject* Instance, const char* Property_Name)
+{
+    if (Klass == 0)
+    {
+        return (result)0;
+    }
+
+    MonoProperty* Prop = mono_class_get_property_from_name(Klass, Property_Name);
+
+    if (Prop == 0)
+    {
+        return (result)0;
+    }
+
+    MonoMethod* Get_Method = mono_property_get_get_method(Prop);
+
+    if (Get_Method == 0)
+    {
+        return (result)0;
+    }
+
+    uint64_t Get_Method_Thunk = (uint64_t)mono_compile_method(Get_Method);
+
+    if (Get_Method_Thunk == 0)
+    {
+        return (result)0;
+    }
+
+    if (Instance != 0)
+    {
+        result(*Method)(MonoObject* Instance) = decltype(Method)(Get_Method_Thunk);
+        return Method(Instance);
+    }
+    else
+    {
+        result(*Method)() = decltype(Method)(Get_Method_Thunk);
+        return Method();
+    }
+}
+
+template <typename result>
+result Get_Property(MonoImage* Assembly_Image, const char* Namespace, const char* Class_Name, MonoObject* Instance, const char* Property_Name)
+{
+    return Get_Property<result>(mono_class_from_name(Assembly_Image, Namespace, Class_Name), Instance, Property_Name);
+}
+
+template <typename Param>
+void Set_Property(MonoClass* Klass, MonoObject* Instance, const char* Property_Name, Param Value)
+{
+    if (Klass == nullptr)
+    {
+        return;
+    }
+
+    if (Instance == nullptr)
+    {
+        return;
+    }
+
+    MonoProperty* Prop = mono_class_get_property_from_name(Klass, Property_Name);
+
+    if (Prop == nullptr)
+    {
+        return;
+    }
+
+    MonoMethod* Set_Method = mono_property_get_set_method(Prop);
+
+    if (Set_Method == nullptr)
+    {
+        return;
+    }
+
+    uint64_t Set_Method_Thunk = (uint64_t)mono_compile_method(Set_Method);
+
+    if (Set_Method_Thunk == 0)
+    {
+        return;
+    }
+
+    void(*Method)(MonoObject* Instance, Param Value) = decltype(Method)(Set_Method_Thunk);
+    Method(Instance, Value);
+}
+
+template <typename Param>
+void Set_Property_Invoke(MonoClass* Klass, MonoObject* Instance, const char* Property_Name, Param Value)
+{
+    if (Klass == nullptr)
+    {
+        return;
+    }
+
+    if (Instance == nullptr)
+    {
+        return;
+    }
+
+    MonoProperty* Prop = mono_class_get_property_from_name(Klass, Property_Name);
+
+    if (Prop == nullptr)
+    {
+        return;
+    }
+
+    MonoMethod* Set_Method = mono_property_get_set_method(Prop);
+
+    if (Set_Method == nullptr)
+    {
+        return;
+    }
+
+    mono_runtime_invoke(Set_Method, Instance, (void**)&Value, 0);
+}
+
+#define ARRAY_COUNT(arry) sizeof(arry) / sizeof(arry[0])
+
+template <typename result, typename... Args>
+result Invoke(MonoImage* Assembly_Image, MonoClass* klass, MonoObject* Instance, const char* Method_Name, Args... args)
+{
+    void* Argsv[] = { &args... };
+    uint64_t ThunkAddress = Get_Address_of_Method(Assembly_Image, klass, Method_Name, ARRAY_COUNT(Argsv));
+
+    if (!ThunkAddress)
+    {
+        return (result)0;
+    }
+
+    if (Instance)
+    {
+        result(*Method)(MonoObject* Instance, Args... args) = decltype(Method)(ThunkAddress);
+        return Method(Instance, args...);
+    }
+    else //Static Call.
+    {
+        result(*Method)(Args... args) = decltype(Method)(ThunkAddress);
+        return Method(args...);
+    }
+}
+
 
 /* ================================= ORIG HOOKED MONO FUNCS ============================================= */
 extern int (*oOnPress)(MonoObject* Instance, MonoObject* element, MonoObject* e);
@@ -374,7 +580,7 @@ extern int (*__sys_regmgr_call)(long, long, int*, int*, long);
 /* ================================= HOOKED MONO FUNCS ============================================= */
 extern  std::vector<Plugins> plugins_list;
 extern  std::vector<Plugins> auto_list;
-extern  std::vector<Payloads_Apps> payloads_apps_list;
+extern  std::vector<Payloads_Apps> payloads_apps_list, custom_pkg_list;
 extern  std::string dec_xml_str;
 extern  std::string dec_list_xml_str;
 extern  std::string cheats_xml;
@@ -385,14 +591,24 @@ extern  std::string uilib;
 extern  std::string Sysinfo;
 extern  std::string display_info;
 extern  std::string uilib_dll;
+extern Payloads_Apps custom_pkg_path;
 
 extern  std::string plugin_xml;
 extern  std::string debug_settings_xml;
 extern  std::string remote_play_xml;
 extern  bool is_game_open;
 extern  bool is_current_game_open;
+extern MonoImage* pui_img;
+extern MonoImage* AppSystem_img;
+extern MonoObject* Game;
 
 
+
+MonoObject* CreateUIColor(float r, float g, float b, float a);
+MonoObject* CreateUIFont(int size, int style, int weight);
+MonoObject* CreateLabel(const char* name, float x, float y, const char* text, MonoObject* font, int horzAlign, int vertAlign, float r, float g, float b, float a);
+void Widget_Append_Child(MonoObject* widget, MonoObject* child);
+MonoObject* New_Object(MonoClass* Klass);
 MonoString *GetString_Hook(MonoObject *Instance, MonoString *str);
 void UpdateImposeStatusFlag_hook(MonoObject* scene, MonoObject* frontActiveScene);
 int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e);
@@ -426,5 +642,6 @@ int rnps_decrypt_block(void* buffer, int size);
 int ioctl_hook (int fd, unsigned long request, void *argp);
 int LaunchApp(MonoString* titleId, uint64_t* args, int argsSize, LaunchAppParam *param);
 int sceRegMgrGetInt_hook(long regid, int* out_val);
+void generate_custom_pkg_xml(std::string& xml_buffer);
 void createJson_hook(MonoObject* inst, MonoObject* array, MonoString* id, MonoString* label = nullptr, MonoString* actionUrl = nullptr, MonoString* actionId = nullptr, MonoString* messageId = nullptr, MonoObject* subMenu = nullptr, bool enable = true);
 /* ================================= HOOKED MONO FUNCS ============================================= */

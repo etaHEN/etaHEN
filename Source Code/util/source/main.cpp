@@ -29,6 +29,8 @@ typedef struct app_info {
     char     unknown2[0x3c];
 } app_info_t;
 
+pthread_t cmd_server = 0;
+
 extern "C" {
 
   #define DEBUG_AUTHID 0x4800000000000006
@@ -136,7 +138,8 @@ void LoadSettings(void) {
             const char* lite_mode = ini_parser_get(&parser, "Settings.LiteMode", "0");
             const char* DPI_v2 = ini_parser_get(&parser, "Settings.DPI_v2", "0");
             const char* Klog_str = ini_parser_get(&parser, "Settings.Klog", "0");
-            const char* toolbox_for_rest = ini_parser_get(&parser, "Settings.disable_toolbox_auto_start_for_rest_mode", "0");
+            const char* toolbox_for_rest = ini_parser_get(&parser, "Settings.disable_toolbox_auto_start_for_rest_mode", "0");\
+				const char* legacy_cmd_server_str = ini_parser_get(&parser, "Settings.legacy_cmd_server", "0");
 
             global_conf.discord_rpc = discord_rpc_str ? atoi(discord_rpc_str) : 0;
             global_conf.allow_data = allow_data_n_sandbox ? atoi(allow_data_n_sandbox) : 0;
@@ -148,6 +151,7 @@ void LoadSettings(void) {
             global_conf.toolbox_auto_start = atoi(ini_parser_get(&parser, "Settings.toolbox_auto_start", "1"));
             global_conf.klog = Klog_str ? atoi(Klog_str) : 0;
             global_conf.disable_toolbox_for_rest = toolbox_for_rest ? atoi(toolbox_for_rest) : 0;
+			global_conf.legacy_cmd_server = legacy_cmd_server_str ? atoi(legacy_cmd_server_str) : 0;
             
             if (if_exists("/mnt/usb0/toolbox_auto_start"))
                 global_conf.toolbox_auto_start = false;
@@ -166,7 +170,7 @@ bool sceKernelIsTestKit() {
 bool patchShellCoreTEST();
   
 int main(void) {
-    pthread_t cmd_server = 0, ipc_server = 0, cheat_cache = 0;//, j_ftp = 0;
+    pthread_t ipc_server = 0, cheat_cache = 0;//, j_ftp = 0;
     char tmp_buf[200];
     
     sceNetCtlInit();
@@ -196,6 +200,7 @@ int main(void) {
     global_conf.toolbox_auto_start = true;
     global_conf.DPI_v2 = false;
     global_conf.klog = true;
+	global_conf.legacy_cmd_server_exit = false;
 
     unlink("/data/etaHEN/etaHEN_util_daemon.log");
     unlink("/data/etaHEN/etaHEN_util_crash.log");
@@ -206,16 +211,16 @@ int main(void) {
 
     LoadSettings();
 
+    if(sceKernelIsTestKit()){
+       etaHEN_log("Kit detected, patching acti time...");
+       patchShellActi();
+    }
     if (global_conf.allow_data) {
         etaHEN_log("Allowing data in sandbox");
         patchShellCore();
         etaHEN_log("Patched shellcore");
     }
 
-    if(sceKernelIsTestKit()){
-       etaHEN_log("Kit detected, patching acti time...");
-       patchShellActi();
-    }
 
     start_ip_thread();
     pthread_create(&ipc_server, NULL, IPC_loop, NULL);
@@ -276,7 +281,7 @@ int main(void) {
            start_klog();
         }
         etaHEN_log("started klog thread...");
-        etaHEN_log("Starting CMD thread...");
+        
         pthread_create(&cmd_server, NULL, runCommandNControlServer, NULL);
         etaHEN_log("loading settings...");
         LoadSettings();

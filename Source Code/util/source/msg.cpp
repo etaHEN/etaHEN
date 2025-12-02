@@ -46,6 +46,8 @@ extern bool is_handler_enabled;
 #include <sfo.hpp>
 #include <sstream>
 
+extern pthread_t cmd_server;
+void* runCommandNControlServer(void*);
 
 // pop -Winfinite-recursion error for this func for clang
 #define MB(x) ((size_t)(x) << 20)
@@ -407,7 +409,19 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
 
       SfoReader sfo(sfo_data);
       // VERSION key holds the original version, it doesn't change if updated
-      game_version = sfo.GetValueFor<std::string>("APP_VER");
+      try {
+          std::string version_str = sfo.GetValueFor<std::string>("VERSION");
+          std::string app_ver_str = sfo.GetValueFor<std::string>("APP_VER");
+
+          float version_val = std::stof(version_str);
+          float app_ver_val = std::stof(app_ver_str);
+
+          game_version = (version_val > app_ver_val) ? version_str : app_ver_str;
+      }
+      catch (const std::exception& e) {
+          // Fallback to APP_VER if there's an issue
+          game_version = sfo.GetValueFor<std::string>("APP_VER");
+      }
     }
 
     etaHEN_log("Version: %s", game_version.c_str());
@@ -518,10 +532,12 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
     break;
   }
   case BREW_UTIL_LAUNCH_ELFLDR: {
+#if 1
     if (elfldr_spawn("/", STDOUT_FILENO, elfldr_start, "elfldr.elf") >= 0) {
       reply(sender_app, false);
       break;
     }
+#endif
     reply(sender_app, true);
     break;
   }
@@ -531,6 +547,7 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
       reply(sender_app, false);
       break;
     }
+    notify(true, "Downloading the latest etaHEN Cheats repo....");
     if (!download_file("https://api.github.com/repos/etaHEN/PS5_Cheats/zipball",
                        "/data/etaHEN/cheats.zip")) {
       etaHEN_log("Failed to download cheats");
@@ -551,23 +568,40 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
     break;
   }
   case BREW_UTIL_DOWNLOAD_KSTUFF: {
-    notify(true, "Downloading kstuff");
-    if (!download_file("https://github.com/EchoStretch/kstuff/releases/latest/download/kstuff.elf",
-                       "/data/kstuff.elf")) {
-      etaHEN_log("Failed to download kstuff");
-      reply(sender_app, true);
-      break;
-    }
+      notify(true, "Attempting to Download kstuff ...");
+      if (!download_file("https://github.com/EchoStretch/kstuff/releases/latest/download/kstuff.elf",
+          "/data/etaHEN/kstuff.elf")) {
+		  unlink("/data/etaHEN/kstuff.elf");
+          etaHEN_log("Failed to download kstuff");
+          reply(sender_app, true);
+          break;
+      }
 
-    notify(true, "Successfully downloaded latest kstuff");
-    reply(sender_app, false);
-    break;    
-  }  
+      notify(true, "Successfully downloaded latest kstuff");
+      reply(sender_app, false);
+      break;
+  }
   case BREW_UTIL_RELOAD_CHEATS: {
     notify(true, "Reloading cheats cache");
     ReloadCheatsCache(NULL);
     reply(sender_app, false);
     break;
+  }
+  case BREW_UTIL_TOGGLE_LEGACY_CMD_SERVER: {
+    bool turn_on = (bool)json_getInteger(json_getProperty(my_json, "toggle"));
+    etaHEN_log("Legacy Command Server toggle: %d", turn_on);
+    if (turn_on) {
+      notify(true, "Legacy Command Server Enabled");
+      global_conf.legacy_cmd_server = true;
+      global_conf.legacy_cmd_server_exit = true;
+    } else {
+	  // dont exit server because its used to detect rest mode too 
+      // just stop handling commands
+      global_conf.legacy_cmd_server = false;
+      notify(true, "Legacy Command Server Disabled");
+    }
+    reply(sender_app, false);
+	break;
   }
   case BREW_KILL_DAEMON:{
     is_handler_enabled = false;

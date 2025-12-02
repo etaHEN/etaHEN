@@ -80,6 +80,15 @@ static inline constexpr Nid sceKernelDebugOutText("9JYNqN6jAKI");
 static inline constexpr Nid sceKernelGetFsSandboxRandomWord("JGfTMBOdUJo");
 static inline constexpr Nid open("wuCroIGjt2g");
 
+static inline constexpr Nid ioctl("PfccT7qURYE");
+static inline constexpr Nid getpid("HoLVWNanBBc"); 
+
+static inline constexpr Nid gettimeofday("n88vx3C5nW8");
+static inline constexpr Nid sceKernelSendNotificationRequest("zl7hupSO0C0");
+
+static inline constexpr Nid sceGnmSubmitAndFlipCommandBuffersForWorkload("Ga6r7H6Y0RI");
+
+
 static inline constexpr Nid mono_get_root_domain{"5a8b+s6HtaA"};
 static inline constexpr Nid mono_property_get_get_method{"uzLsJUMjvLY"};
 static inline constexpr Nid mono_property_get_set_method{"BhrEyM1kGW8"};
@@ -92,7 +101,7 @@ static inline constexpr Nid mono_domain_assembly_open{"dCeihPtadCM"};
 static inline constexpr Nid mono_thread_attach{"qqUxjwJzc2I"};
 
 static inline constexpr Nid mono_class_get_method_from_name{"H5IByLixeaI"};
-
+static inline constexpr Nid scePadReadState{"YndgXqQVV7c"};
 static inline constexpr Nid strlen{"j4ViWNHEgww"};
 static inline constexpr Nid sceAppInstUtilInstallByPackage{"tDtjgaXYmuo"};
 

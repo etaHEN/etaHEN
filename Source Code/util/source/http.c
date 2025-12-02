@@ -28,271 +28,292 @@ along with this program; see the file COPYING. If not, see
 #include "../extern/tiny-json/tiny-json.hpp"
 
 #define TEST_USER_AGENT "etaHEN_Downloader"
+#include <curl/curl.h>
 
 #define NET_HEAP_SIZE	(32 * 1024)
 #define MAX_CONCURRENT_REQUEST	(4)
 #define PRIVATE_CA_CERT_NUM		(0)
-#define SSL_HEAP_SIZE	((((MAX_CONCURRENT_REQUEST-1) / 3) +1)*256*1024 + 4*1024*PRIVATE_CA_CERT_NUM)
-#define HTTP2_HEAP_SIZE	((((MAX_CONCURRENT_REQUEST-1) / 3) +1)*256*1024)
-#define COMMIT_HASH_FILE "/data/etaHEN/cheats/cheat_commit_hash.txt"
+#define COMMIT_HASH_FILE "/data/etaHEN/cheat_commit_hash.txt"
 #define GITHUB_API_URL "https://api.github.com/repos/etaHEN/PS5_Cheats/commits"
 
 uint64_t sceKernelGetProcessTime(void);
 
-int libnetMemId = 0, libsslCtxId = 0, libhttp2CtxId = 0;
+// Structure for download progress tracking
+struct download_progress {
+    int fd;
+    uint64_t last_notify_time;
+    const uint64_t notify_interval;
+    const char* filename;
+};
 
-
-int netInit(void) {
-
-  /* libnet */
-  int ret = sceNetInit();
-  ret = sceNetPoolCreate("simple", NET_HEAP_SIZE, 0);
-  libnetMemId = ret;
-
-  return libnetMemId;
-}
+// Structure for JSON download
+struct json_data {
+    char* data;
+    size_t size;
+    size_t capacity;
+};
 
 bool IniliatizeHTTP() {
+    CURLcode res = curl_global_init(CURL_GLOBAL_DEFAULT);
+    if (res != CURLE_OK) {
+        etaHEN_log("curl_global_init() error: %s", curl_easy_strerror(res));
+        return false;
+    }
 
-  int ret = netInit();
-  if (ret < 0){
-    etaHEN_log("netInit() error: 0x%08X", ret);
-    return false;
-  }
-
-  ret = sceSslInit(SSL_HEAP_SIZE);
-  if (ret < 0){
-    etaHEN_log("sceSslInit() error: 0x%08X", ret);
-    return false;
-  }
-
-  libsslCtxId = ret;
-
-  etaHEN_log("libsslCtxId = %x", libsslCtxId);
-
-  ret = sceHttp2Init(libnetMemId, libsslCtxId, HTTP2_HEAP_SIZE, MAX_CONCURRENT_REQUEST);
-  if (ret < 0){
-    etaHEN_log("sceHttpInit() error: 0x%08X", ret);
-    return false;
-  }
-
-  libhttp2CtxId = ret;
-
-  return true;
+	etaHEN_log("cURL initialized successfully, version %s", curl_version());
+    return true;
 }
 
-static int skipSSLCallback(int libsslCtxId,
-	unsigned int verifyErr,
-	void * const sslCert[],
-	int certNum,
-	void *userArg
-) {
+// Callback function to write downloaded data to file
+static size_t write_file_callback(void* contents, size_t size, size_t nmemb, void* userdata) {
+    struct download_progress* progress = (struct download_progress*)userdata;
+    size_t real_size = size * nmemb;
 
-  etaHEN_log("skipSSLCallback() called");
-  return 0;
+    ssize_t written = sceKernelWrite(progress->fd, contents, real_size);
+    if (written != real_size) {
+        etaHEN_log("sceKernelWrite() error: written %ld, expected %zu", written, real_size);
+        return 0; // This will cause curl to abort
+    }
+
+    return real_size;
 }
 
-bool download_file(const char* url, const char* dst)
-{
-    int ret = -1;
-    int libhttp2TmplId = -1;
-    int reqId = -1;
-    int statusCode = -1;
-    int contentLengthType = -1;
-    uint64_t contentLength = 0;
+// Progress callback for file downloads
+static int progress_callback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
+    curl_off_t ultotal, curl_off_t ulnow) {
+    struct download_progress* progress = (struct download_progress*)clientp;
+    uint64_t current_time = sceKernelGetProcessTime();
+
+    // Check if we should notify
+    if (current_time - progress->last_notify_time >= progress->notify_interval) {
+        char notifyMsg[256];
+        float dlnow_mb = (float)dlnow / (1024 * 1024);
+
+        if (dltotal > 0) {
+            float dltotal_mb = (float)dltotal / (1024 * 1024);
+            int percent = (int)(((float)dlnow / dltotal) * 100);
+
+            snprintf(notifyMsg, sizeof(notifyMsg),
+                "Downloading the cheats repo:..\n%.1f/%.1f MB (%d%%)",
+                dlnow_mb, dltotal_mb, percent);
+        }
+        else {
+            snprintf(notifyMsg, sizeof(notifyMsg),
+                "Downloading the cheats repo...\n%.1f MB Downloaded",
+                dlnow_mb);
+        }
+
+        notify(true, notifyMsg);
+        progress->last_notify_time = current_time;
+    }
+
+    return 0; // Return 0 to continue
+}
+
+bool download_file(const char* url, const char* dst) {
+    CURL* curl;
+    CURLcode res;
     bool success = false;
-    
-    // For notification timing
-    uint64_t last_notify_time = 0;
-    uint64_t current_time = 0;
-    const uint64_t notify_interval = 6 * 1000000; // 6 seconds in microseconds
-    
+	char notifyMsg[1000];
+
+    const char* filename = strrchr(dst, '/');
+    filename = filename ? filename + 1 : dst; // Get just the filename without the path
+
     // Remove destination file if it exists
     unlink(dst);
-    
-    // Create HTTP template
-    libhttp2TmplId = sceHttp2CreateTemplate(libhttp2CtxId, TEST_USER_AGENT, 
-                                          SCE_HTTP2_VERSION_2_0, true);
-    if (libhttp2TmplId < 0) {
-        etaHEN_log("sceHttp2CreateTemplate() error: 0x%08X", libhttp2TmplId);
-        goto error;
-    }
-    
-    // Disable SSL options if needed
-    ret = sceHttp2SetSslCallback(libhttp2TmplId, skipSSLCallback, NULL);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2SslDisableOption() error: 0x%08X", ret);
-        goto error;
-    }
-    
-    // Create HTTP request
-    ret = sceHttp2CreateRequestWithURL(libhttp2TmplId, "GET", url, 0);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2CreateRequestWithURL() error: 0x%08X", ret);
-        goto error;
-    }
-    reqId = ret;
-    
-    // Send the request
-    ret = sceHttp2SendRequest(reqId, NULL, 0);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2SendRequest() error: 0x%08X", ret);
-        goto error;
-    }
-    
-    // Get status code
-    ret = sceHttp2GetStatusCode(reqId, &statusCode);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2GetStatusCode() error: 0x%08X", ret);
-        goto error;
-    }
-    etaHEN_log("Response status code: %d", statusCode);
-    
-    if (statusCode != 200) {
-        etaHEN_log("HTTP error: unexpected status code %d", statusCode);
-        goto error;
-    }
-    
-    // Get content length
-    ret = sceHttp2GetResponseContentLength(reqId, &contentLengthType, &contentLength);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2GetResponseContentLength() error: 0x%08X", ret);
-        goto error;
-    }
-    
-    if (contentLengthType == SCE_HTTP2_CONTENTLEN_EXIST) {
-        etaHEN_log("Content-Length: %llu bytes", contentLength);
-    } else {
-        etaHEN_log("Content-Length not available");
-    }
-    
+
     // Open file for writing
     int fd = sceKernelOpen(dst, O_WRONLY | O_CREAT, 0777);
     if (fd < 0) {
         etaHEN_log("Failed to open destination file: %s (error: 0x%08X)", dst, fd);
-        goto error;
+        return false;
     }
-    
-    // Initialize progress display
-    etaHEN_log("Downloading %s to %s", url, dst);
-    etaHEN_log("Progress: 0%%");
-    
+
+    // Initialize progress structure
+    struct download_progress progress = {
+        .fd = fd,
+        .last_notify_time = sceKernelGetProcessTime(),
+        .notify_interval = 6 * 1000000, // 6 seconds in microseconds
+        .filename = strrchr(dst, '/') ? strrchr(dst, '/') + 1 : dst
+    };
+
+    // Initialize curl
+    curl = curl_easy_init();
+    if (!curl) {
+        etaHEN_log("curl_easy_init() failed");
+        sceKernelClose(fd);
+        return false;
+    }
+
     // Initial notification
-    char notifyMsg[256];
-    const char *filename = strrchr(dst, '/');
-    filename = filename ? filename + 1 : dst; // Get just the filename without the path
-    
-    snprintf(notifyMsg, sizeof(notifyMsg), "Downloading '%s' ...", filename);
-    notify(true, notifyMsg);
-    
-    // Get current time for notification timing
-    last_notify_time = sceKernelGetProcessTime();
-    
-    // Read data and write to file
-    char buf[4096];
-    int total_read = 0;
-    
-    while (true) {
-        int read = sceHttp2ReadData(reqId, buf, sizeof(buf));
-        if (read < 0) {
-            etaHEN_log("sceHttp2ReadData() error: 0x%08X", read);
-            sceKernelClose(fd);
-            goto error;
-        }
-        
-        if (read == 0) {
-            // Download complete
-            etaHEN_log("Download complete: %d bytes", total_read);
-            break;
-        }
-        
-        ret = sceKernelWrite(fd, buf, read);
-        if (ret < 0 || ret != read) {
-            etaHEN_log("sceKernelWrite() error: 0x%08X", ret);
-            sceKernelClose(fd);
-            goto error;
-        }
-        
-        total_read += read;
-        
-        // Get current time to check if we should notify
-        current_time = sceKernelGetProcessTime();
-        
-        // Update progress and check for notification interval
-        if (current_time - last_notify_time >= notify_interval) {
-            // Format size in a readable way
-            float total_mb = (float)total_read / (1024 * 1024);
-            
-            if (contentLengthType == SCE_HTTP2_CONTENTLEN_EXIST && contentLength > 0) {
-                float total_size_mb = (float)contentLength / (1024 * 1024);
-                int progress = (int)(((float)total_read / contentLength) * 100);
-                
-                snprintf(notifyMsg, sizeof(notifyMsg), 
-                         "Downloading '%s':..\n%.1f/%.1f MB (%d%%)", 
-                         filename, total_mb, total_size_mb, progress);
-            } else {
-                snprintf(notifyMsg, sizeof(notifyMsg), 
-                         "Downloading '%s'...\n%.1f MB Downloaded", 
-                         filename, total_mb);
-            }
-            
+    etaHEN_log("Downloading %s to %s", url, dst);
+
+    // Set curl options
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &progress);
+    curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
+    curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, &progress);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, TEST_USER_AGENT);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Skip SSL verification
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L); // 5 minute timeout
+
+    // Perform the request
+    res = curl_easy_perform(curl);
+
+    if (res != CURLE_OK) {
+        etaHEN_log("curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        notify(true, "Failed to download the %s!\n\nCheck your internet connection and try again.\nError: %s", filename, curl_easy_strerror(res));
+    }
+    else {
+        // Check HTTP response code
+        long response_code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        etaHEN_log("Response status code: %ld", response_code);
+
+        if (response_code == 200) {
+            // Get download size info
+            curl_off_t download_size;
+            curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD_T, &download_size);
+
+            snprintf(notifyMsg, sizeof(notifyMsg),
+                "Successfully downloaded the %s\nTotal Size: %.1f MB", filename,
+                (float)download_size / (1024 * 1024));
             notify(true, notifyMsg);
-            last_notify_time = current_time;
+            etaHEN_log("Download complete: %lld bytes", download_size);
+            success = true;
+        }
+        else {
+            etaHEN_log("HTTP error: unexpected status code %ld", response_code);
+            notify(true, "Failed to download the %s!\n\nServer returned an error.", filename);
         }
     }
-    
-    // Final notification
-    snprintf(notifyMsg, sizeof(notifyMsg), 
-             "Successfully downloaded '%s'\nTotal Size: %.1f MB", 
-             filename, (float)total_read / (1024 * 1024));
-    notify(true, notifyMsg);
-    
-    etaHEN_log("Download complete '%s': %d bytes", filename, total_read);
+
+    // Cleanup
+    curl_easy_cleanup(curl);
     sceKernelClose(fd);
-    success = true;
-    
-error:
-    // Clean up resources
-    if (reqId > 0) {
-        int tmpRet = sceHttp2DeleteRequest(reqId);
-        if (tmpRet < 0) {
-            etaHEN_log("sceHttp2DeleteRequest() error: 0x%08X", tmpRet);
-        }
-    }
-    
-    if (libhttp2TmplId > 0) {
-        int tmpRet = sceHttp2DeleteTemplate(libhttp2TmplId);
-        if (tmpRet < 0) {
-            etaHEN_log("sceHttp2DeleteTemplate() error: 0x%08X", tmpRet);
-        }
-    }
-    
-    if (!success) {
-        // Notify on error
-        notify(true, "Failed to download [%s]!\n\nCheck your internet connection and try again.", filename);
-    }
-    
+
     return success;
 }
 
+// Callback function to write JSON data to memory
+static size_t write_json_callback(void* contents, size_t size, size_t nmemb, void* userdata) {
+    struct json_data* json = (struct json_data*)userdata;
+    size_t real_size = size * nmemb;
+
+    // Resize buffer if needed
+    if (json->size + real_size >= json->capacity) {
+        size_t new_capacity = json->capacity * 2;
+        if (new_capacity < json->size + real_size + 1) {
+            new_capacity = json->size + real_size + 1;
+        }
+
+        char* new_data = realloc(json->data, new_capacity);
+        if (!new_data) {
+            etaHEN_log("Failed to reallocate memory for JSON data");
+            return 0; // This will cause curl to abort
+        }
+
+        json->data = new_data;
+        json->capacity = new_capacity;
+    }
+
+    // Copy data
+    memcpy(json->data + json->size, contents, real_size);
+    json->size += real_size;
+    json->data[json->size] = '\0'; // Null terminate
+
+    return real_size;
+}
+
+// Function to download JSON data from URL
+static char* download_json(const char* url) {
+    CURL* curl;
+    CURLcode res;
+    char* result = NULL;
+
+    // Initialize JSON data structure
+    struct json_data json = {
+        .data = malloc(1024),
+        .size = 0,
+        .capacity = 1024
+    };
+
+    if (!json.data) {
+        etaHEN_log("Failed to allocate initial memory for JSON data");
+        return NULL;
+    }
+
+    json.data[0] = '\0';
+
+    // Initialize curl
+    curl = curl_easy_init();
+    if (!curl) {
+        etaHEN_log("curl_easy_init() failed");
+        free(json.data);
+        return NULL;
+    }
+
+    // Set curl options
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_json_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &json);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, TEST_USER_AGENT);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Skip SSL verification
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L); // 30 second timeout
+
+    // Perform the request
+    res = curl_easy_perform(curl);
+
+    if (res != CURLE_OK) {
+        etaHEN_log("curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        free(json.data);
+    }
+    else {
+        // Check HTTP response code
+        long response_code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+        if (response_code == 200) {
+            etaHEN_log("Downloaded %zu bytes of JSON data", json.size);
+            result = json.data; // Return the data
+        }
+        else {
+            etaHEN_log("HTTP error: unexpected status code %ld", response_code);
+            free(json.data);
+        }
+    }
+
+    // Cleanup
+    curl_easy_cleanup(curl);
+
+    return result;
+}
+
 // Function to create directory if it doesn't exist
-static void ensure_directory(const char *path) {
-    struct stat st = {0};
+static void ensure_directory(const char* path) {
+    struct stat st = { 0 };
     if (stat(path, &st) == -1) {
         mkdir(path, 0755);
     }
 }
+
 // Simple function to extract a zip file
-bool extract_zip(const char *zip_path, const char *extract_dir) {
+bool extract_zip(const char* zip_path, const char* extract_dir) {
     unzFile zip = unzOpen(zip_path);
     if (!zip) {
         etaHEN_log("Failed to open zip file: %s", zip_path);
         notify(true, "Failed to open zip file");
         return false;
     }
-    
+
     ensure_directory(extract_dir);
-    
+
     // Go to the first file
     if (unzGoToFirstFile(zip) != UNZ_OK) {
         etaHEN_log("Empty zip file");
@@ -300,62 +321,62 @@ bool extract_zip(const char *zip_path, const char *extract_dir) {
         notify(true, "Empty zip file");
         return false;
     }
-    
+
     // For notification timing
     uint64_t last_notify_time = 0;
     uint64_t current_time = 0;
     const uint64_t notify_interval = 6 * 1000000; // 6 seconds in microseconds
-    
+
     // Count total files for progress reporting
     int total_files = 0;
     int processed_files = 0;
-    
+
     // First pass - count files
     do {
         total_files++;
     } while (unzGoToNextFile(zip) == UNZ_OK);
-    
+
     // Reset to first file
     unzGoToFirstFile(zip);
-    
+
     // Extract the zip filename for notifications
-    const char *zip_filename = strrchr(zip_path, '/');
+    const char* zip_filename = strrchr(zip_path, '/');
     zip_filename = zip_filename ? zip_filename + 1 : zip_path;
-    
+
     // Initial notification
     char notifyMsg[256];
     snprintf(notifyMsg, sizeof(notifyMsg), "Preparing to extract the cheats repo (%d files)", total_files);
     notify(true, notifyMsg);
     etaHEN_log("%s", notifyMsg);
-    
+
     // Get current time for notification timing
     last_notify_time = sceKernelGetProcessTime();
-    
+
     char filename[512];
     char full_path[1024];
     int skip_root = 1;  // Flag to skip the root GitHub folder
-    char root_folder[256] = {0};
+    char root_folder[256] = { 0 };
     int root_folder_len = 0;
-    
+
     // Get the root folder name (first entry)
     unz_file_info file_info;
     unzGetCurrentFileInfo(zip, &file_info, filename, sizeof(filename), NULL, 0, NULL, 0);
-    char *first_slash = strchr(filename, '/');
+    char* first_slash = strchr(filename, '/');
     if (first_slash) {
         root_folder_len = first_slash - filename + 1;
         strncpy(root_folder, filename, root_folder_len);
         root_folder[root_folder_len] = '\0';
         etaHEN_log("Detected root folder: %s", root_folder);
     }
-    
+
     // Reset to the first file
     unzGoToFirstFile(zip);
-    
+
     do {
         unzGetCurrentFileInfo(zip, &file_info, filename, sizeof(filename), NULL, 0, NULL, 0);
-        
+
         // Skip the root folder if needed
-        char *actual_filename = filename;
+        char* actual_filename = filename;
         if (skip_root && root_folder_len > 0 && strncmp(filename, root_folder, root_folder_len) == 0) {
             actual_filename = filename + root_folder_len;
             if (strlen(actual_filename) == 0) {
@@ -363,10 +384,10 @@ bool extract_zip(const char *zip_path, const char *extract_dir) {
                 continue;
             }
         }
-        
+
         // Create the output path
         snprintf(full_path, sizeof(full_path), "%s/%s", extract_dir, actual_filename);
-        
+
         // Check if this is a directory
         if (filename[strlen(filename) - 1] == '/') {
             etaHEN_log("Creating directory: %s", full_path);
@@ -374,23 +395,21 @@ bool extract_zip(const char *zip_path, const char *extract_dir) {
             processed_files++;
             continue;
         }
-        
-       // etaHEN_log("Extracting: %s", full_path);
-        
+
         // Create directories in the path
-        char *last_slash = strrchr(full_path, '/');
+        char* last_slash = strrchr(full_path, '/');
         if (last_slash) {
             *last_slash = '\0';
             ensure_directory(full_path);
             *last_slash = '/';
         }
-        
+
         // Extract the file
         if (unzOpenCurrentFile(zip) != UNZ_OK) {
             etaHEN_log("Failed to open file in zip");
             continue;
         }
-        
+
         // Open with POSIX open() instead of fopen()
         int out = open(full_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (out == -1) {
@@ -398,148 +417,42 @@ bool extract_zip(const char *zip_path, const char *extract_dir) {
             unzCloseCurrentFile(zip);
             continue;
         }
-        
+
         char buffer[8192];
         int bytes;
         while ((bytes = unzReadCurrentFile(zip, buffer, sizeof(buffer))) > 0) {
-            // Use write() instead of fwrite()
             write(out, buffer, bytes);
         }
-        
-        // Use close() instead of fclose()
+
         close(out);
         unzCloseCurrentFile(zip);
-        
+
         // Increment processed files count
         processed_files++;
-        
+
         // Check if it's time to show a notification
         current_time = sceKernelGetProcessTime();
         if (current_time - last_notify_time >= notify_interval) {
             int progress_percent = (processed_files * 100) / total_files;
-            snprintf(notifyMsg, sizeof(notifyMsg), 
-                     "Extracting the cheats: %d/%d files (%d%%)", 
-                     processed_files, total_files, progress_percent);
+            snprintf(notifyMsg, sizeof(notifyMsg),
+                "Extracting the cheats: %d/%d files (%d%%)",
+                processed_files, total_files, progress_percent);
             notify(true, notifyMsg);
             etaHEN_log("%s", notifyMsg);
             last_notify_time = current_time;
         }
-        
+
     } while (unzGoToNextFile(zip) == UNZ_OK);
-    
+
     // Final notification
-    snprintf(notifyMsg, sizeof(notifyMsg), 
-             "Cheats Extraction complete (%d files)", 
-             processed_files);
+    snprintf(notifyMsg, sizeof(notifyMsg),
+        "Cheats Extraction complete (%d files)",
+        processed_files);
     notify(true, notifyMsg);
     etaHEN_log("%s", notifyMsg);
-    
+
     unzClose(zip);
     return true;
-}
-
-// Function to download JSON data from URL
-static char* download_json(const char* url) {
-    int ret = -1;
-    int libhttp2TmplId = -1;
-    int reqId = -1;
-    int statusCode = -1;
-    char* json_data = NULL;
-    
-    // Create HTTP template
-    libhttp2TmplId = sceHttp2CreateTemplate(libhttp2CtxId, TEST_USER_AGENT, 
-                                          SCE_HTTP2_VERSION_2_0, true);
-    if (libhttp2TmplId < 0) {
-        etaHEN_log("sceHttp2CreateTemplate() error: 0x%08X", libhttp2TmplId);
-        goto error;
-    }
-    
-    // Disable SSL callback
-    ret = sceHttp2SetSslCallback(libhttp2TmplId, skipSSLCallback, NULL);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2SslDisableOption() error: 0x%08X", ret);
-        goto error;
-    }
-    
-    // Create HTTP request
-    ret = sceHttp2CreateRequestWithURL(libhttp2TmplId, "GET", url, 0);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2CreateRequestWithURL() error: 0x%08X", ret);
-        goto error;
-    }
-    reqId = ret;
-    
-    // Send the request
-    ret = sceHttp2SendRequest(reqId, NULL, 0);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2SendRequest() error: 0x%08X", ret);
-        goto error;
-    }
-    
-    // Get status code
-    ret = sceHttp2GetStatusCode(reqId, &statusCode);
-    if (ret < 0) {
-        etaHEN_log("sceHttp2GetStatusCode() error: 0x%08X", ret);
-        goto error;
-    }
-    
-    if (statusCode != 200) {
-        etaHEN_log("HTTP error: unexpected status code %d", statusCode);
-        goto error;
-    }
-    
-    // Allocate buffer for JSON data (32KB should be enough for commit info)
-    const int buffer_size = 32768;
-    json_data = (char*)malloc(buffer_size);
-    if (!json_data) {
-        etaHEN_log("Failed to allocate memory for JSON data");
-        goto error;
-    }
-    
-    // Read JSON data
-    char buf[4096];
-    int total_read = 0;
-    
-    while (total_read < buffer_size - 1) {
-        int read = sceHttp2ReadData(reqId, buf, sizeof(buf));
-        if (read < 0) {
-            etaHEN_log("sceHttp2ReadData() error: 0x%08X", read);
-            free(json_data);
-            json_data = NULL;
-            goto error;
-        }
-        
-        if (read == 0) {
-            break; // Download complete
-        }
-        
-        // Make sure we don't overflow the buffer
-        if (total_read + read >= buffer_size - 1) {
-            read = buffer_size - 1 - total_read;
-        }
-        
-        memcpy(json_data + total_read, buf, read);
-        total_read += read;
-        
-        if (total_read >= buffer_size - 1) {
-            break;
-        }
-    }
-    
-    json_data[total_read] = '\0';
-    etaHEN_log("Downloaded %d bytes of JSON data", total_read);
-    
-error:
-    // Clean up resources
-    if (reqId > 0) {
-        sceHttp2DeleteRequest(reqId);
-    }
-    
-    if (libhttp2TmplId > 0) {
-        sceHttp2DeleteTemplate(libhttp2TmplId);
-    }
-    
-    return json_data;
 }
 
 // Function to extract SHA from JSON response

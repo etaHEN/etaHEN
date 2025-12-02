@@ -5,7 +5,7 @@
 ## 🚀 **Support the Project**
 
 If you find this project useful and would like to support its continued development, consider buying me a coffee!
-[![ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/lightningmods)
+[![GitHub Sponsers](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://github.com/sponsors/LightningMods)
 
 ## Building from Source
 
@@ -14,7 +14,7 @@ However I will not be providing instructions on how to build it since any dev sh
 
 ## Official PS5 exploit website 
 - https://tinyurl.com/PS5IPV6 (requires you to manually send the payload but has the best stability)
-- https://ps5jb.pages.dev/ (auto loads the payload for you, id recommand the IPV6 exploit over UMTX)
+- https://ps5jb.pages.dev/ (auto loads the payload for you, id recommend the IPV6 exploit over UMTX)
 
 ## Recommended self-host exploits
 - [Modified IPV6 exploit for etaHEN support](https://github.com/LightningMods/PS5-IPV6-Kernel-Exploit)
@@ -60,6 +60,8 @@ Port: XXXX
  - [Toolbox] Plugin / Payload ELF Menu with auto start options
  - [Toolbox] External HDD Menu
  - [Toolbox] TestKit Menu  
+ - [Toolbox] Kstuff menu
+ - [Toolbox] Game Overlay Menu
  - [Toolbox] Cheats Menu (WIP)
  - [Toolbox] Controller Shortcuts
  - [Toolbox] PS5 webMAN Games menu
@@ -101,7 +103,6 @@ More info [Here](https://github.com/LightningMods/etaHEN-SDK/blob/main/README.md
 
 ## Upcoming features
  - [Toolbox] FPS Counter
- - [Toolbox] On-Screen temps and other info (for retails)
  - More userland patches
  - Improved PS5 Game support (itemzflow)
  - More (consider donating)
@@ -137,6 +138,13 @@ and is automatically created when you run etaHEN for the first time
 | `Toolbox_shortcut_opt` | Multi-select option for toolbox shortcut               | 0 (TOOLBOX_SC_OFF) |
 | `Games_shortcut_opt` | Multi-select option for games shortcut                   | 0 (GAMES_SC_OFF) |
 | `Kstuff_shortcut_opt` | Multi-select option for kstuff shortcut                | 0 (KSTUFF_SC_OFF) |
+| `auto_eject_disc`  | 0 = disabled, 1 = enabled        | 0 (disabled) |
+| `overlay_ram`           | 0 = disabled, 1 = enabled                    | 0 (disabled) |
+| `overlay_cpu`      | 0 = disabled, 1 = enabled            | 0 (disabled) |
+| `overlay_gpu`  | 0 = disabled, 1 = enabled    | 0 (disabled) |
+| `overlay_ip` | 0 = disabled, 1 = enabled           | 1 (enabled) |
+| `overlay_kstuff` | 0 = disabled, 1 = enabled           | 1 (enabled) |
+| `Overlay_pos` | Multi-select option for game overlay                | 0 (OVERLAY_POS_TOP_LEFT) |
 
 ## DPI API details for tool creators 
 etaHEN's Direct PKG Installer currently is very simple and is considered a WIP
@@ -154,7 +162,7 @@ the service flow is as follows
 4. etaHEN will close the client socket after the return json is sent
 
 
-## Jailbreaking an app (FPKG) using etaHEN (non-whitelist method, Network required)
+## Jailbreaking an app (FPKG) using etaHEN (non-whitelist method, Network and Legacy CMD server toolbox setting required)
 
 ```
 enum Commands : int {

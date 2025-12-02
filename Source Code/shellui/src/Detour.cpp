@@ -21,7 +21,7 @@ along with this program; see the file COPYING. If not, see
 #include <machine/param.h>
 #define ROUND_PG(x) (((x) + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1))
 
-extern bool has_hv_bypess;
+extern bool has_hv_bypass;
 
 void WriteJump(uint64_t address, uint64_t destination) {
   *(uint8_t * )(address) = 0xFF;
@@ -34,11 +34,7 @@ void WriteJump(uint64_t address, uint64_t destination) {
 }
 
 void ReadMemory(uint64_t address, void * buffer, int length) {
-  // memcpy(buffer, (void*)address, length);
-  if (has_hv_bypess)
-    memcpy(buffer, (void * ) address, length);
-  else
-    mdbg_copyout(getpid(), address, buffer, length);
+   memcpy(buffer, (void * ) address, length);
 }
 
 void WriteMemory(uint64_t address, void * buffer, int length) {
@@ -57,9 +53,6 @@ void PatchInJump(uint64_t address, void * destination) {
   if (!address || !destination)
     return;
 
-  if (!has_hv_bypess) {
-    pid_t pid = getpid();
-
 	uint8_t JumpInstructions[] = {
 		0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xFF, 0xE0, // mov rax, <address>; jmp rax
 	};
@@ -72,46 +65,7 @@ void PatchInJump(uint64_t address, void * destination) {
     uint64.a = (uint64_t) destination;
     memcpy(JumpInstructions + 2, uint64.b, 8);
 
-    mdbg_copyin(pid, (void * ) JumpInstructions, address, sizeof(JumpInstructions));
-  } else {
-    WriteJump(address, (uint64_t) destination);
-  }
-}
-
-//
-// Alloc using JIT shm
-//
-int JITAlloc(size_t size, void ** executableAddress, void ** writableAddress) {
-  uint8_t * old_ucred = jailbreak_process(getpid());
-
-  int executableHandle = -1;
-  int writableHandle = -1;
-
-  sceKernelJitCreateSharedMemory(0, ROUND_PG(size), PROT_EXEC | PROT_READ | PROT_WRITE, & executableHandle);
-  if (executableHandle < 0) {
-    shellui_log("Failed to create JIT shared memory!");
-    return 0;
-  }
-
-  sceKernelJitCreateAliasOfSharedMemory(executableHandle, PROT_READ | PROT_WRITE, & writableHandle);
-
-  if (writableHandle < 0) {
-    shellui_log("Failed to create JIT shared memory!");
-    return 0;
-  }
-
-  * executableAddress = mmap(NULL, ROUND_PG(size), PROT_EXEC | PROT_READ, MAP_SHARED, executableHandle, 0);
-  * writableAddress = mmap(NULL, ROUND_PG(size), PROT_WRITE | PROT_READ, MAP_FIXED | MAP_PRIVATE, writableHandle, 0);
-
-  if (! * executableAddress) {
-    shellui_log("Failed to map executable address!\n");
-
-  }
-  jail_process(getpid(), old_ucred);
-  free(old_ucred);
-
-  // memset(*writableAddress, 0xCC, ROUND_PG(size));
-  return 1;
+    WriteJump(address, (uint64_t)destination);
 }
 
 void * DetourFunction(uint64_t address, void * destination) {
@@ -120,12 +74,12 @@ void * DetourFunction(uint64_t address, void * destination) {
 
   uint32_t InstructionSize = 0;
   pid_t pid = getpid();
-  shellui_log("Hooking %#02lx => %p\n", address, destination);
+  shellui_log("Hooking %#02lx => %p", address, destination);
 
   // sceKernelMprotect((void*)address, 0x1000, 0x7);
   uint8_t code[HOOK_LENGTH];
 
-  if (has_hv_bypess)
+  if (has_hv_bypass)
   {
     sceKernelMprotect((void * ) address, PAGE_SIZE, PROT_EXEC | PROT_READ | PROT_WRITE); 
   }
@@ -157,16 +111,16 @@ void * DetourFunction(uint64_t address, void * destination) {
   int stubLength = InstructionSize + HOOK_LENGTH;
   void * executableAddress = NULL;
 
-  if (has_hv_bypess) {
-    executableAddress = malloc(stubLength);
-    if (!executableAddress) {
+  executableAddress = malloc(stubLength);
+  if (!executableAddress) {
       shellui_log("Failed to allocate memory for stub");
       return 0;
-    }
+  }
+
+  if (has_hv_bypass) {
     sceKernelMprotect(executableAddress, stubLength, PROT_EXEC | PROT_READ | PROT_WRITE);
   } else {
-    executableAddress = mmap(0, stubLength, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    kernel_mprotect(pid, (uint64_t) executableAddress, stubLength, PROT_EXEC | PROT_READ | PROT_WRITE);
+    kernel_mprotect(pid, (uint64_t)executableAddress, stubLength, PROT_EXEC | PROT_READ | PROT_WRITE);
   }
 
   ReadMemory((uint64_t) address, executableAddress, InstructionSize);

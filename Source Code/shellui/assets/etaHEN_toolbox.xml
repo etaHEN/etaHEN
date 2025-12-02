@@ -5,6 +5,9 @@
   <setting_list id="id_debug_settings" title="★etaHEN Toolbox" initial_focus_to="id_game_package_installer">
     <!-- PKG Installer -->
     <link id="id_game_package_installer" title="Package Installer" file="PkgInstaller/data/pkginstaller.xml"/>
+
+    <link id="id_game_custom_package_installer" title="★ Custom Background Package Installer" file="custompkginstaller.xml"/>
+     
     <!-- Plugins -->
     <link id="id_plugins" title="Plugins / Payload ELFs" file="plugins.xml"/>
 
@@ -21,15 +24,39 @@
       <toggle_switch id="id_DPI_v2_service" title="Direct Package Installer V2" second_title="Direct PKG Installer V2 web Server on http://PS5_IP:12800" value="0"/>
     </setting_list>
     <!-- Settings -->
-    <setting_list id="id_utils" title="Settings" initial_focus_to="id_pause_kstuff">
-      <list id="id_pause_kstuff" title="(Beta) Pause Kstuff" second_title="Pausing kstuff will greatly improve overrall system performance but FPKGs will NOT work" confirm="PS4 FPKGs, PS5 FGs and any FPKG Homebrew apps will NOT work once paused depending on the option selected" confirm_phrase="OK, Cancel" >
-       <list_item id="id_pause_kstuff_1" title="Not Paused" value="0"/>
-       <list_item id="id_pause_kstuff_2" title="PS5 sysentvec Only" value="1"/>
-       <list_item id="id_pause_kstuff_3" title="PS4 sysentvec Only" value="2"/>
-       <list_item id="id_pause_kstuff_4" title="Pause Both PS5 and PS4 sysentvecs" value="3"/>
-      </list>
+        <setting_list id="id_utils" title="Settings" initial_focus_to="id_overlay_opts">
+          <!-- Overlay menu -->
+        <setting_list id="id_overlay_opts" title="Game Overlay Menu" initial_focus_to="id_overlay_change_pos">
+           <list id="id_overlay_change_pos" title="Overlay Position" second_title="Change the position of the overlay on screen" >
+             <list_item id="id_overlay_pos_1" title="Top Left" value="0"/>
+             <list_item id="id_overlay_pos_2" title="Top Right" value="1"/>
+             <list_item id="id_overlay_pos_3" title="Bottom Left" value="2"/>
+             <list_item id="id_overlay_pos_4" title="Bottom Right" value="3"/>
+           </list>
+          <!-- <toggle_switch id="id_overlay_fps" title="FPS Section" description="Toggle the FPS Section from the game overlay" value="0"/> -->
+           <toggle_switch id="id_overlay_gpu" title="GPU Section" description="Toggle the GPU Section from the game overlay" value="0"/>
+           <toggle_switch id="id_overlay_cpu" title="CPU Section" description="Toggle the CPU Section from the game overlay" value="0"/>
+           <toggle_switch id="id_all_cpu_usage" title="Show ALL CPU Core Usage" description="Toggle the advanced CPU usage from the game overlay" value="0"/>
+           <toggle_switch id="id_overlay_ram" title="RAM Section" description="Toggle the RAM Section from the game overlay" value="0"/>
+           <toggle_switch id="id_overlay_ip" title="IP Address Section" description="Toggle the IP Section from the game overlay" value="0"/>
+           <toggle_switch id="id_overlay_kstuff" title="Kstuff is Disabled Warning Overlay" description="Replaces the Kstuff is disabled notification with Red on-screen warning text | NOTE: NOT affected by overlay position setting" value="0"/>
+        </setting_list>
 
-      <button id="id_download_kstuff" title="Download latest Kstuff"/>    
+          <!-- Kstuff menu -->
+        <setting_list id="id_kstuff_opts" title="Kstuff Menu" initial_focus_to="id_pause_kstuff">
+
+            <list id="id_pause_kstuff" title="Pause Kstuff" second_title="Pausing kstuff will greatly improve overrall system performance but FPKGs will NOT work" confirm="PS4 FPKGs, PS5 FGs and any FPKG Homebrew apps will NOT work once paused depending on the option selected" confirm_phrase="OK, Cancel" >
+              <list_item id="id_pause_kstuff_1" title="Not Paused" value="0"/>
+              <list_item id="id_pause_kstuff_2" title="PS5 sysentvec Only" value="1"/>
+              <list_item id="id_pause_kstuff_3" title="PS4 sysentvec Only" value="2"/>
+              <list_item id="id_pause_kstuff_4" title="Pause Both PS5 and PS4 sysentvecs" value="3"/>
+            </list>
+
+            <button id="id_download_kstuff" title="Replace kstuff with the latest Kstuff via Github" description="Downloads and Installs the latest kstuff from EchoStretch's Github Repo, will replace the one etaHEN auto loads on startup"/>
+            <button id="id_delete_kstuff" title="Delete Kstuff installed via Github" description="This will switch back to etaHENs built-in kstuff"/>
+            <toggle_switch id="id_kstuff_autoload" title="Auto load Kstuff on etaHEN startup"  value="0"/>
+
+       </setting_list>
       
       <toggle_switch id="id_sistro_ps5debug" title="Enable PS5Debug by Sistr0 and CTN"  value="0"/>
 
@@ -42,6 +69,9 @@
        <toggle_switch id="id_auto_eject" title="Auto Eject Disc on etaHEN Start" description="Automatically ejects the inserted disc after etaHEN fully starts, useful for BD-J or LUA exploits" confirm="Changes will be applied next reboot" value="0"/>
 
       <toggle_switch id="id_ftp_dev_access" title="Allow FTP access to the /dev directory"  value="0"/>
+
+          <!-- <link id="id_whitelist_menu" title="Whitelisted Apps (SuperUser) Menu" file="superuser.xml"/> -->
+          
       <!-- Debug setting extra 1 -->
       <link id="id_licenseactivation" title="Blu-Ray (license) Activation" file="DebugSettings/data/debug_settings_licenseactivation.xml"/>
       <link id="id_external_hdd" title="External HDD" file="DebugSettings/data/debug_settings_external_hdd.xml" />
@@ -65,6 +95,7 @@
       <toggle_switch id="id_lite_mode" title="Lite Mode" second_title="Kills All etaHEN services and plugins (Kstuff or HEN ONLY mode)" confirm="This WILL forcefully kill any active services and plugins (excluding the elfldr for re-enabling), Homebrew requiring etaHEN will also not function and the lite menu will not survive rest mode" value="0"/>
 
       <toggle_switch id="id_debug_jb" title="[Debug] App Jailbreak Notification" second_title="Display a Jailbreak notification when jailbreaking an app" value="0"/>
+      <toggle_switch id="id_debug_legacy_cmd" title="[Debug] Legacy Jailbreak CMD Server" second_title="Requires networking; Apps can Jailbreak via Socket" value="0"/>
            <!-- TestKit Menu -->
       <link id="id_testkit_menu" title="TestKit Menu" file="testkit_menu.xml"/>
       
@@ -127,12 +158,11 @@
 
        <setting_list id="id_donation_methods" title="Support the Project" second_title="Do you like the project? Consider Donating">
       <label id="id_method_info" title="★ Donation Methods" style="center"/>
-      <label id="id_method_1" title="- Ko-fi  | https://ko-fi.com/lightningmods" style="center"/>
-      <label id="id_method_2" title="- PayPal | https://tinyurl.com/etaHEN-Donate" style="center"/>
+      <label id="id_method_1" title="- GitHub Sponsors  | https://github.com/sponsors/LightningMods" style="center"/>
       </setting_list>
 
       <setting_list id="id_etahen_credits" title="etaHEN Credits" second_title="Credits and Supporters">
-      <label id="id_etahen_creds_display" title="★ etaHEN Beta 2.3" style="center"/>
+      <label id="id_etahen_creds_display" title="★ etaHEN Beta 2.4" style="center"/>
       <label id="id_lead_devs" title="★ Lead Developer(s) ★" style="center"/>
       <label id="id_lead_devs_2" title="- LM (X @LightningMods_, GitHub @LightningMods, Discord @lm_dev)" style="center"/>
       <label id="id_ddkdkd" title="★ etaHEN Contributors ★" style="center"/>
@@ -140,7 +170,7 @@
       <label id="id_major_line_3" title="John tornblom - elfldr, etc" style="center"/>
       <label id="id_99877777" title="For more info, updates or issues visit the GitHub Repo" style="center"/>
       <label id="id_99555557" title="https://github.com/LightningMods/etaHEN" style="center"/>
-      <label id="id_8585858" title="Special Thanks to all the Ko-fi Supporters including the following:" style="center"/>
+      <label id="id_8585858" title="Special Thanks to all the Supporters including the following:" style="center"/>
       <label id="id_60606066" title="MODDED WARFARE, Bucanero, Echo Stretch, CurrentGenGamesWithNick, Reo Auin, illusion, nanospeedgamer, Nomadic, Michael Crump, Br0ken4life, Mouuu, Newhouse-Estates, Dr Angry " style="left"/>
       <label id="id_60888880" title="Richard Stoltz, Not So Typical Gamer, Doobie, MC, WWIII, dutchfavx, Pulsar, gorshco, illix, Ya Boi Michael, Nineof09, Lostferwords, Kevin, kUiTs, ram" style="left"/>
       <label id="id_606064330" title="onstar, Mapleditch, pyksy, Puky70, TheBoySassy21, Arnooooo, Jacksun, William, MauricioRodriguez, Micaiah, Madmac, Grit, dIGIMAN/TRSI, xe, Priyesh Patel" style="left"/>

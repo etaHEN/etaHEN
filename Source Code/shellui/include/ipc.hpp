@@ -37,6 +37,7 @@ along with this program; see the file COPYING. If not, see
 #include <sys/un.h>
 #include <unistd.h>
 #include <vector>
+#include <ps5/klog.h>
 
 enum Cheat_Actions {
   DOWNLOAD_CHEATS = 0,
@@ -63,7 +64,7 @@ static void shellui_log(const char *fmt, ...) {
     buffer[DAEMON_BUFF_MAX - 1] = '\0';
   }
   if (!is_testkit)
-    sceKernelDebugOutText(0, buffer);
+	  klog_printf(buffer);
   else
     printf("%s", buffer);
 }
@@ -111,8 +112,19 @@ public:
     // erase the old message
     bzero(msg.msg, sizeof(msg.msg));
 
-    int ret = recv(util_daemon ? UtilDaemonSocket : MainDaemonSocket,
-                   reinterpret_cast<void *>(&msg), sizeof(msg), MSG_NOSIGNAL);
+    int timeout_ms = 10 * 1000;
+    // Set receive timeout
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+
+    int socket_fd = util_daemon ? UtilDaemonSocket : MainDaemonSocket;
+
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        return -1; // Error setting timeout
+    }
+
+    int ret = recv(socket_fd, reinterpret_cast<void*>(&msg), sizeof(msg), MSG_NOSIGNAL);
     if (ret < 0) {
       shellui_log("recv failed with: 0X%X", ret);
       return ret;
@@ -287,14 +299,14 @@ public:
   }
 
   IPC_Ret DownloadKstuff() {
-    std::string ipc_msg;
-    if (!IPCSendCommand(BREW_UTIL_DOWNLOAD_KSTUFF, ipc_msg)) {
-      shellui_log("Failed to BREW_UTIL_DOWNLOAD_KSTUFF");
-      return IPC_Ret::OPERATION_FAILED;
-    }
+      std::string ipc_msg;
+      if (!IPCSendCommand(BREW_UTIL_DOWNLOAD_KSTUFF, ipc_msg)) {
+          shellui_log("Failed to BREW_UTIL_DOWNLOAD_KSTUFF");
+          return IPC_Ret::OPERATION_FAILED;
+      }
 
-    return IPC_Ret::NO_ERROR;
-  }  
+      return IPC_Ret::NO_ERROR;
+  }
 
   void KillDaemon() {
     std::string ipc_msg;

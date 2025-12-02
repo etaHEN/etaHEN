@@ -25,7 +25,7 @@ along with this program; see the file COPYING. If not, see
 #include "ucred.h"
 #include <cstdint>
 #include <iostream>
-
+#include "webserver.hpp"
 
 #include <unistd.h>
 #include <util.hpp>
@@ -45,10 +45,13 @@ std::string remote_play_xml;
 std::string debug_settings_xml;
 std::string cheats_xml;
 
+MonoImage* pui_img = nullptr;
+MonoImage* AppSystem_img = nullptr;
+MonoObject* Game = nullptr;
 MonoImage * react_common_img = nullptr;
 
 bool hooked = false;
-bool has_hv_bypess = false;
+bool has_hv_bypass = false;
 bool is_testkit = false;
 
 extern "C" long ptr_syscall = 0;
@@ -66,6 +69,10 @@ void __syscall() {
       "  ret\n");
 }
 
+void (*OnRender_orig)(MonoObject* instance);
+MonoObject* rootWidget = nullptr;
+MonoObject* font = nullptr;
+
 void (*Orig_ReloadApp)(MonoString *str) = nullptr;
 
 void ReloadApp(MonoString *str){
@@ -75,12 +82,353 @@ void ReloadApp(MonoString *str){
      Orig_ReloadApp(str);
 }
 
+//int _AppInstUtilInstallByPackage(string uri, string ex_uri, string playgo_scenario_id, string content_id, string content_name, string icon_url, uint slot, bool is_playgo_enabled, ref AppInstUtilWrapper.SceAppInstallPkgInfo pkg_info, string[] languages, string[] playgo_scenario_ids, string[] content_ids);
+
+int (*Orig_AppInstUtilInstallByPackage)(MonoString* uri, MonoString* ex_uri, MonoString* playgo_scenario_id, MonoString* content_id, MonoString* content_name, MonoString* icon_url, uint32_t slot, bool is_playgo_enabled, MonoObject* pkg_info, MonoArray* languages, MonoArray* playgo_scenario_ids, MonoArray* content_ids) = nullptr;
+
+int AppInstUtilInstallByPackage_Hook(MonoString* uri, MonoString* ex_uri, MonoString* playgo_scenario_id, MonoString* content_id, MonoString* content_name, MonoString* icon_url, uint32_t slot, bool is_playgo_enabled, MonoObject* pkg_info, MonoArray* languages, MonoArray* playgo_scenario_ids, MonoArray* content_ids) {
+        std::string s_uri = mono_string_to_utf8(uri);
+    std::string s_ex_uri = mono_string_to_utf8(ex_uri);
+    std::string s_playgo_scenario_id = mono_string_to_utf8(playgo_scenario_id);
+    std::string s_content_id = mono_string_to_utf8(content_id);
+    std::string s_content_name = mono_string_to_utf8(content_name);
+    std::string s_icon_url = mono_string_to_utf8(icon_url);
+    shellui_log("AppInstUtilInstallByPackage_Hook called with:\n uri: %s\n ex_uri: %s\n playgo_scenario_id: %s\n content_id: %s\n content_name: %s\n icon_url: %s\n slot: %u\n is_playgo_enabled: %d", 
+        s_uri.c_str(), s_ex_uri.c_str(), s_playgo_scenario_id.c_str(), s_content_id.c_str(), s_content_name.c_str(), s_icon_url.c_str(), slot, is_playgo_enabled);
+    notify("Installing package from:\n%s", s_uri.c_str());
+    int ret = Orig_AppInstUtilInstallByPackage(uri, ex_uri, playgo_scenario_id, content_id, content_name, icon_url, slot, is_playgo_enabled, pkg_info, languages, playgo_scenario_ids, content_ids);
+    shellui_log("AppInstUtilInstallByPackage_Hook returned: %d", ret);
+    notify("Installation finished with code: %d", ret);
+	return ret;
+}
+
+struct OrbisKernelTimespec {
+    int64_t tv_sec;
+    int64_t tv_nsec;
+};
+
+struct Proc_Stats
+{
+    int32_t lo_data;								//0x00
+    uint32_t td_tid;						//0x04
+    OrbisKernelTimespec user_cpu_usage_time;	//0x08
+    OrbisKernelTimespec system_cpu_usage_time;  //0x18
+}; //0x28
+
+extern "C" {
+    int sceKernelGetSocSensorTemperature(int sensorId, int* soctime);
+    int get_page_table_stats(int vm, int type, int* total, int* free);
+    int sceKernelGetCpuUsage(struct Proc_Stats* out, int32_t* size);
+    int sceKernelGetThreadName(uint32_t id, char* out);
+	int sceKernelGetCpuTemperature(int* cputemp);
+    int sceKernelClockGettime(int clockId, OrbisKernelTimespec* tp);
+}
+
+struct Memory
+{
+    int Used;
+    int Free;
+    int Total;
+    float Percentage;
+};
+
+struct thread_usages
+{
+    OrbisKernelTimespec current_time;	//0x00
+    int Thread_Count;					//0x10
+    char padding0[0x4];					//0x14
+    Proc_Stats Threads[3072];			//0x18
+};
+
+int Thread_Count = 0;
+float Usage[8] = { 0 };
+float Average_Usage;
+Memory RAM;
+Memory VRAM;
+
+Proc_Stats Stat_Data[3072];
+thread_usages gThread_Data[2];
+
+
+void Get_Page_Table_Stats(int vm, int type, int* Used, int* Free, int* Total)
+{
+    int _Total = 0, _Free = 0;
+
+    if (get_page_table_stats(vm, type, &_Total, &_Free) == -1) {
+        shellui_log("get_page_table_stats() Failed.\n");
+        return;
+    }
+
+    if (Used)
+        *Used = (_Total - _Free);
+
+    if (Free)
+        *Free = _Free;
+
+    if (Total)
+        *Total = _Total;
+}
+
+void calc_usage(unsigned int idle_tid[8], thread_usages* cur, thread_usages* prev, float usage_out[8])
+{
+    if (cur->Thread_Count <= 0 || prev->Thread_Count <= 0) //Make sure our banks have threads
+        return;
+
+    //Calculate the Current time difference from the last bank to the current bank.
+    float Current_Time_Total = ((prev->current_time.tv_sec + (prev->current_time.tv_nsec / 1000000000.0f)) - (cur->current_time.tv_sec + (cur->current_time.tv_nsec / 1000000000.0f)));
+
+    //Here this could use to be improved but essetially what its doing is finding the thread information for the idle threads using their thread Index stored from before.
+    struct Data_s
+    {
+        Proc_Stats* Cur;
+        Proc_Stats* Prev;
+    }Data[8];
+
+    for (int i = 0; i < cur->Thread_Count; i++)
+    {
+        for (int j = 0; j < 8; j++)
+        {
+            if (idle_tid[j] == cur->Threads[i].td_tid)
+                Data[j].Cur = &cur->Threads[i];
+        }
+    }
+
+    for (int i = 0; i < prev->Thread_Count; i++)
+    {
+        for (int j = 0; j < 8; j++)
+        {
+            if (idle_tid[j] == prev->Threads[i].td_tid)
+                Data[j].Prev = &prev->Threads[i];
+        }
+    }
+
+    //Here we loop through each core to calculate the total usage time as its split into user/sustem
+    for (int i = 0; i < 8; i++)
+    {
+        float Prev_Usage_Time = (Data[i].Prev->system_cpu_usage_time.tv_sec + (Data[i].Prev->system_cpu_usage_time.tv_nsec / 1000000.0f));
+        Prev_Usage_Time += (Data[i].Prev->user_cpu_usage_time.tv_sec + (Data[i].Prev->user_cpu_usage_time.tv_nsec / 1000000.0f));
+
+        float Cur_Usage_Time = (Data[i].Cur->system_cpu_usage_time.tv_sec + (Data[i].Cur->system_cpu_usage_time.tv_nsec / 1000000.0f));
+        Cur_Usage_Time += (Data[i].Cur->user_cpu_usage_time.tv_sec + (Data[i].Cur->user_cpu_usage_time.tv_nsec / 1000000.0f));
+
+        //We calculate the usage using usage time difference between the two samples divided by the current time difference.
+        float Idle_Usage = ((Prev_Usage_Time - Cur_Usage_Time) / Current_Time_Total);
+
+        if (Idle_Usage > 1.0f)
+            Idle_Usage = 1.0f;
+
+        if (Idle_Usage < 0.0f)
+            Idle_Usage = 0.0f;
+
+        //Get inverse of idle percentage and express in percent.
+        usage_out[i] = (1.0f - Idle_Usage) * 100.0f;
+    }
+}
+extern bool app_launched;
+
+
+class AtomicString {
+    mutable std::mutex mtx;
+    std::string value;
+
+public:
+    void store(const std::string& str) {
+        std::lock_guard<std::mutex> lock(mtx);
+        value = str;
+    }
+
+    std::string load() const {
+        std::lock_guard<std::mutex> lock(mtx);
+        return value;
+    }
+};
+
+AtomicString fps_string;
+
+
+int get_ip_address(char* ip_address);
+void OnRender_Hook(MonoObject* instance)
+{
+    static bool Do_Once = false;
+    static unsigned int Idle_Thread_ID[8];
+    static int Current_Bank = 0;
+
+    // Separate labels for text and values
+    static MonoObject* gpu_temp_value = nullptr;
+    static MonoObject* gpu_usage_value = nullptr;
+
+    static MonoObject* cpu_temp_value = nullptr;
+    static MonoObject* cpu_usage_value = nullptr;
+
+    static MonoObject* ram_value = nullptr;
+    static MonoObject* fps_value = nullptr;
+
+
+    char GPU_TEMP[32];
+    char GPU_USAGE[32];
+    char CPU_TEMP[32];
+    char CPU_USAGE[120];
+    char RAM_STR[32];
+
+    static int wait = 0;
+    int SOC_temp = 0;
+    int CPU_temp = 0;
+
+    if (!Do_Once)
+    {
+#if 0
+        fps_string.store("LOADING");
+#else
+        fps_string.store("NOT SUPPORTED IN THIS BUILD");
+#endif
+	//	shellui_log("string %s", fps_string.load().c_str());
+        int Thread_Count = 3072;
+        if (!sceKernelGetCpuUsage((Proc_Stats*)&Stat_Data, (int*)&Thread_Count) && Thread_Count > 0)
+        {
+            char Thread_Name[0x40];
+            int Core_Count = 0;
+            for (int i = 0; i < Thread_Count; i++)
+            {
+                if (!sceKernelGetThreadName(Stat_Data[i].td_tid, Thread_Name) && sscanf(Thread_Name, "SceIdleCpu%d", &Core_Count) == 1 && Core_Count <= 7)
+                {
+                    Idle_Thread_ID[Core_Count] = Stat_Data[i].td_tid;
+                }
+            }
+        }
+
+        rootWidget = Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget");
+        font = CreateUIFont(22, 0, 0);           // Regular font for values
+
+        // GPU row - Green label (BOLD), Orange values - Better spacing
+        if (global_conf.overlay_cpu) {
+            CreateGameWidget(CREATE_CPU_OVERLAY);
+        }
+        if (global_conf.overlay_ram) {
+            CreateGameWidget(CREATE_RAM_OVERLAY);
+        }
+        if (global_conf.overlay_gpu) {
+            CreateGameWidget(CREATE_GPU_OVERLAY);
+        }
+        if (global_conf.overlay_fps) {
+            CreateGameWidget(CREATE_FPS_OVERLAY);
+        }
+		if (global_conf.overlay_ip) {
+			CreateGameWidget(CREATE_IP_OVERLAY);
+		}
+
+        Do_Once = true;
+    }
+
+
+    if (wait <= 0) {
+
+
+        // Get CPU usage
+        while (global_conf.overlay_cpu || global_conf.all_cpu_usage) {
+            gThread_Data[Current_Bank].Thread_Count = 3072;
+            if (!sceKernelGetCpuUsage((Proc_Stats*)&gThread_Data[Current_Bank].Threads, &gThread_Data[Current_Bank].Thread_Count))
+            {
+                Thread_Count = gThread_Data[Current_Bank].Thread_Count;
+                sceKernelClockGettime(4, &gThread_Data[Current_Bank].current_time);
+                Current_Bank = !Current_Bank;
+
+                if (gThread_Data[Current_Bank].Thread_Count <= 0)
+                    continue;
+
+                calc_usage(Idle_Thread_ID, &gThread_Data[!Current_Bank], &gThread_Data[Current_Bank], Usage);
+
+                if (global_conf.all_cpu_usage) {
+                    snprintf(CPU_USAGE, sizeof(CPU_USAGE), "%2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%%",Usage[0], Usage[1], Usage[2], Usage[3], Usage[4], Usage[5], Usage[6], Usage[7]);
+                    break;
+                }
+
+                // Calculate average CPU usage
+                float avg_cpu = 0;
+                for (int i = 0; i < 8; i++) {
+                    avg_cpu += Usage[i];
+                }
+                avg_cpu /= 8.0f;
+
+                snprintf(CPU_USAGE, sizeof(CPU_USAGE), "%.0f%%", avg_cpu);
+                break;
+            }
+        }
+
+        // Get RAM info
+        if (global_conf.overlay_ram)
+        {
+            Get_Page_Table_Stats(1, 1, &RAM.Used, &RAM.Free, &RAM.Total);
+            snprintf(RAM_STR, sizeof(RAM_STR), "%u MB", RAM.Used);
+        }
+
+        // Get GPU usage (estimate based on VRAM usage)
+        if (global_conf.overlay_gpu) 
+        {
+            // Get temperatures
+            sceKernelGetSocSensorTemperature(0, &SOC_temp);
+            snprintf(GPU_TEMP, sizeof(GPU_TEMP), "%dC", SOC_temp);
+            Get_Page_Table_Stats(1, 2, &VRAM.Used, &VRAM.Free, &VRAM.Total);
+            VRAM.Percentage = (((float)VRAM.Used / (float)VRAM.Total) * 100.0f);
+            snprintf(GPU_USAGE, sizeof(GPU_USAGE), "%.0f%%", VRAM.Percentage);
+        }
+        if(global_conf.overlay_ip)
+        {
+			char ip_address[64];
+            get_ip_address(&ip_address[0]);
+            MonoObject* ip_value = Invoke<MonoObject*>(pui_img, mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget"), Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget"), "FindWidgetByName", mono_string_new(Root_Domain, "id_ip_value"));
+            Set_Property(mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Label"), ip_value, "Text", mono_string_new(Root_Domain, ip_address));
+		}
+
+        if (global_conf.overlay_gpu) {
+            // Update GPU values
+            gpu_temp_value = Invoke<MonoObject*>(pui_img, mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget"), Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget"), "FindWidgetByName", mono_string_new(Root_Domain, "id_gpu_temp_value"));
+            Set_Property(mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Label"), gpu_temp_value, "Text", mono_string_new(Root_Domain, GPU_TEMP));
+
+            gpu_usage_value = Invoke<MonoObject*>(pui_img, mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget"), Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget"), "FindWidgetByName", mono_string_new(Root_Domain, "id_gpu_usage_value"));
+            Set_Property(mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Label"), gpu_usage_value, "Text", mono_string_new(Root_Domain, GPU_USAGE));
+        }
+        if (global_conf.overlay_cpu || global_conf.all_cpu_usage) {
+            sceKernelGetCpuTemperature(&CPU_temp);
+            // Format temperature strings
+            snprintf(CPU_TEMP, sizeof(CPU_TEMP), "%dC", CPU_temp);
+            // Update CPU values
+            cpu_temp_value = Invoke<MonoObject*>(pui_img, mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget"), Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget"), "FindWidgetByName", mono_string_new(Root_Domain, "id_cpu_temp_value"));
+            Set_Property(mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Label"), cpu_temp_value, "Text", mono_string_new(Root_Domain, CPU_TEMP));
+
+            cpu_usage_value = Invoke<MonoObject*>(pui_img, mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget"), Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget"), "FindWidgetByName", mono_string_new(Root_Domain, "id_cpu_usage_value"));
+            Set_Property(mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Label"), cpu_usage_value, "Text", mono_string_new(Root_Domain, CPU_USAGE));
+        }
+        if(global_conf.overlay_ram) 
+        {
+            // Update RAM value
+            ram_value = Invoke<MonoObject*>(pui_img, mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget"), Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget"), "FindWidgetByName", mono_string_new(Root_Domain, "id_ram_value"));
+            Set_Property(mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Label"), ram_value, "Text", mono_string_new(Root_Domain, RAM_STR));
+		}
+        if (global_conf.overlay_fps) {
+            // Update FPS value
+            std::string current_fps = fps_string.load();
+            fps_value = Invoke<MonoObject*>(pui_img, mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Widget"), Get_Property<MonoObject*>(pui_img, "Sce.PlayStation.PUI.UI2", "Scene", Game, "RootWidget"), "FindWidgetByName", mono_string_new(Root_Domain, "id_fps_value"));
+            Set_Property(mono_class_from_name(pui_img, "Sce.PlayStation.PUI.UI2", "Label"), fps_value, "Text", mono_string_new(Root_Domain, current_fps.c_str()));
+        }
+        wait = 60; // Update every 60 frames
+    }
+    else {
+        wait--;
+    }
+
+    OnRender_orig(instance);
+}
+
+
 int main(int argc, char const *argv[]) {
   OrbisKernelSwVersion sw;
   char buz[100];
   if (hooked) {
     return 0;
   }
+
+  static ssize_t(*read)(int fd, void* buf, size_t count) = nullptr;
+
 
   pid_t pid = getpid();
   uintptr_t old_authid = set_ucred_to_debugger();
@@ -96,6 +444,7 @@ int main(int argc, char const *argv[]) {
   KERNEL_DLSYM(libkernelsys_handle, sceKernelGetProsperoSystemSwVersion);
   KERNEL_DLSYM(libkernelsys_handle, sceKernelGetAppInfo);
   KERNEL_DLSYM(libkernelsys_handle, sceKernelGetProcessName);
+  KERNEL_DLSYM(libkernelsys_handle, read);
 
   shellui_log("Starting ShellUI Module ....");
   // int native_handle = get_module_handle(pid, "libNativeExtensions.sprx");
@@ -116,6 +465,11 @@ int main(int argc, char const *argv[]) {
   KERNEL_DLSYM(libSceKernelHandle, getpid);
   ptr_syscall = getpid;
   ptr_syscall += 0xa; // jump directly to the syscall instruction
+
+  int libshelluiutil_handle = get_module_handle(pid, "libSceShellUIUtil.sprx");
+  KERNEL_DLSYM(libshelluiutil_handle, sceShellUIUtilLaunchByUri);
+  KERNEL_DLSYM(libshelluiutil_handle, sceShellUIUtilInitialize);
+  
 
   //
   // Mono is already loaded into the SceShellUI process
@@ -301,7 +655,7 @@ int main(int argc, char const *argv[]) {
     dec_ver += etaHEN_VERSION;
     std::string final_ver;
 #if PUBLIC_TEST == 1
-    final_ver = dec_ver + " -PUBLIC_-TEST" + " (" + sw.version_str + " )";
+    final_ver = dec_ver + " -PUBLIC_TEST" + " (" + sw.version_str + " )";
 #elif PRE_RELEASE == 1
     final_ver = dec_ver + " PRE_RELEASE" + " (" + sw.version_str + " )";
 #else
@@ -355,12 +709,6 @@ int main(int argc, char const *argv[]) {
       return -1;
     }
 
-    MonoImage * appsystem_img = getDLLimage(appsystem_dll.c_str());
-    if (!appsystem_img) {
-      notify("Failed to get image 2.");
-      return -1;
-    }
-
     MonoImage * capture_menu = getDLLimage(capture_menu_dll.c_str());
     if (!capture_menu) {
       notify("Failed to get image 3.");
@@ -378,7 +726,6 @@ int main(int argc, char const *argv[]) {
       notify("Failed to get image 5.");
       return -1;
     }
-
     
     MonoImage * ReactNativeShellAppReactNativeShellApp_img = getDLLimage("Sce.Vsh.ShellUI.ReactNativeShellApp.dll");
     if (!ReactNativeShellAppReactNativeShellApp_img) {
@@ -386,23 +733,85 @@ int main(int argc, char const *argv[]) {
       return -1;
     }
 
-    Patch_Main_thread_Check(image_core);
-
-    // System.Reflection.RuntimeAssembly.GetManifestResourceStream
-    uint64_t method = Get_Address_of_Method(mscorelib_image, sys_reflection_dec.c_str(), is_3xx ? "Assembly" : RuntimeAssembly_dec.c_str(), GetManifestResourceStream_dec.c_str(), 1);
-    if (!method) {
-      notify("Failed to get master address");
+    MonoImage* AppInstallUtil_img = getDLLimage("Sce.Vsh.AppInstUtilWrapper.dll");
+    if(!AppInstallUtil_img) {
+      notify("Failed to get image 7.");
       return -1;
-    }
+	}
 
-    shellui_log("Starting hooking...");
-    if (if_exists("/system_tmp/kstuff_paused")) {
-      shellui_log("Kstuff Paused, resuming kstuff");
-      pause_resume_kstuff(NOT_PAUSED, false);
-      unlink("/system_tmp/kstuff_paused");
-    }
+  pui_img = getDLLimage("Sce.PlayStation.PUI.dll");
+  if (!pui_img) {
+    notify("Failed to get pui image");
+    return -1;
+  }
 
-    has_hv_bypess = (sceKernelMprotect( & buz[0], 100, 0x7) == 0);
+  if (1) {
+      MonoClass* LayerManager = mono_class_from_name(AppSystem_img, "Sce.Vsh.ShellUI.AppSystem", "LayerManager");
+      if (!LayerManager) {
+          notify("Failed to get LayerManager class");
+          return -1;
+      }
+
+      // Get the method - this should return MonoMethod*, not an address
+      MonoMethod* FindContainerSceneByPath = mono_class_get_method_from_name(LayerManager, "FindContainerSceneByPath", 1);
+      if (!FindContainerSceneByPath) {
+          notify("Failed to get FindContainerSceneByPath method");
+          return -1;
+      }
+
+      // Create the string argument
+      MonoString* pathArg = mono_string_new(mono_domain_get(), "Game");
+
+      // Prepare arguments array
+      void* args[1];
+      args[0] = pathArg;
+
+      // Invoke the method (static call since Instance is nullptr)
+      MonoObject* exception = nullptr;
+      Game = mono_runtime_invoke(FindContainerSceneByPath, nullptr, args, &exception);
+      if (exception) {
+          notify("Exception occurred while calling FindContainerSceneByPath");
+          return -1;
+      }
+      if (!Game) {
+          notify("Failed to get Game ContainerScene");
+          return -1;
+      }
+
+      shellui_log("Game ContainerScene: %p", Game);
+
+      OnRender_orig = (void(*)(MonoObject*)) DetourFunction(Get_Address_of_Method(pui_img, "Sce.PlayStation.PUI", "Application", "Update", 0), (void*)&OnRender_Hook);
+  }
+
+  // System.Reflection.RuntimeAssembly.GetManifestResourceStream
+  uint64_t method = Get_Address_of_Method(mscorelib_image, sys_reflection_dec.c_str(), is_3xx ? "Assembly" : RuntimeAssembly_dec.c_str(), GetManifestResourceStream_dec.c_str(), 1);
+  if (!method) {
+    notify("Failed to get master address");
+    return -1;
+  }
+
+  shellui_log("Starting hooking...");
+  if (if_exists("/system_tmp/kstuff_paused")) {
+    shellui_log("Kstuff Paused, resuming kstuff");
+    pause_resume_kstuff(NOT_PAUSED, false);
+    unlink("/system_tmp/kstuff_paused");
+  }
+
+  has_hv_bypass = (sceKernelMprotect( & buz[0], 100, 0x7) == 0);
+
+  //SimpleHTTPServer server(1304, "/");
+  //server.start();
+
+  Patch_Main_thread_Check(image_core);
+
+#if 0
+    Orig_AppInstUtilInstallByPackage = (int (*)(MonoString * uri, MonoString * ex_uri, MonoString * playgo_scenario_id, MonoString * content_id, MonoString * content_name, MonoString * icon_url, uint32_t slot, bool is_playgo_enabled, MonoObject * pkg_info, MonoArray * languages, MonoArray * playgo_scenario_ids, MonoArray * content_ids)) DetourFunction(Get_Address_of_Method(AppInstallUtil_img, "Sce.Vsh", "AppInstUtilWrapper", "_AppInstUtilInstallByPackage", 12), (void*)&AppInstUtilInstallByPackage_Hook);
+	if (!Orig_AppInstUtilInstallByPackage) {
+		notify("Failed to hook AppInstUtilInstallByPackage");
+		return -1;
+	}
+#endif
+
 
     if(sceRegMgrGetInt) {
       sceRegMgrGetInt = (int( * )(long, int * )) DetourFunction((uintptr_t)sceRegMgrGetInt, (void *)&sceRegMgrGetInt_hook);
@@ -411,6 +820,10 @@ int main(int argc, char const *argv[]) {
         return -1;
       }
     }
+    else{
+      notify("Failed to find sceRegMgrGetInt");
+      return -1;
+	}
 
     void* createJson_addr =  DetourFunction(Get_Address_of_Method(ReactNativeShellAppReactNativeShellApp_img, "ReactNative.Modules.ShellUI.HomeUI", "OptionMenu", "createJson", 8), (void * )&createJson_hook);
     createJson = (void( * )(MonoObject *, MonoObject * , MonoString * , MonoString * , MonoString * , MonoString * , MonoString * , MonoObject * , bool)) createJson_addr;
@@ -503,6 +916,18 @@ int main(int argc, char const *argv[]) {
       notify("Failed to detour Func Set 10");
     }
 
+    IPC_Client & main_ipc = IPC_Client::getInstance(false);
+    is_testkit = main_ipc.IsTestKit();
+    if (is_testkit) {
+      shellui_log("TestKit Detected, applying shellui testkit hooks");
+      Start_Kit_Hooks();
+    }
+#if 0
+    Orig_ReloadApp = (void(*)(MonoString*))DetourFunction(Get_Address_of_Method(react_common_img, "ReactNative.Vsh.Common", "ReactApplicationSceneManager", "ReloadApp", 1), (void * )&ReloadApp);
+    if (!Orig_ReloadApp) {
+      notify("Failed to detour Func Set 11");
+    }
+#endif
     //
     // Restore normal authid
     //
@@ -512,6 +937,7 @@ int main(int argc, char const *argv[]) {
     //
     if(global_conf.display_tids)
        ReloadRNPSApp("NPXS40002"); // home screen tid
+
 
     // shellui_log("Decrypted Data: %s", dec_xml_str.c_str());
     shellui_log("Performed Magic");

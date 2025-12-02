@@ -18,7 +18,7 @@ along with this program; see the file COPYING. If not, see
 #define PUBLIC_TEST 0
 #define PRE_RELEASE 0
 #define SHELL_DEBUG 0
-#define etaHEN_VERSION "2.3"
+#define etaHEN_VERSION "2.4"
 
 #define libSceKernelHandle 0x2001
 #define KERNEL_DLSYM(handle, sym) \

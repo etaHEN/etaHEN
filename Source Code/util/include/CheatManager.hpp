@@ -97,6 +97,7 @@ struct CheatMemory
     uint64_t Offset; // offset of the patch
     ByteArray On; // Data that should be inserted when the cheat is enabled
     ByteArray Off; // Data that should be inserted when the cheat is disabled
+    bool absolute; // New To support section bigger than 0 when ASLR is off       // 09/10/2025 xZenithy
 };
 
 struct CheatInfo

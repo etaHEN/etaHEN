@@ -1,9 +1,3 @@
-###################################################################################################
-# PS5SDK - Example: pipe pirate
-# Uses the read/write primitive to read and write some kernel data.
-# @authors ChendoChap, Specter, Znullptr
-###################################################################################################
-
 cmake_minimum_required (VERSION 3.20)
 
 set(basename "bootstrapper")
@@ -66,9 +60,16 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0")
 target_sources(${PROJECT_NAME} PRIVATE ${SrcFiles})
 target_include_directories(${PROJECT_NAME} PRIVATE "${D_CWD}/include" "${D_SRC}/../Byepervisor/include" "${D_SRC}/../Byepervisor_DevKit/include" "${D_SRC}/../Byepervisor_DevKit/include/offsets")
 target_link_directories	(${PROJECT_NAME} PUBLIC "${PROJECT_ROOT}/lib")
-target_link_libraries	(${PROJECT_NAME} PUBLIC NineS SceSystemService SceUserService kernel_sys SceShellUIUtil)
+target_link_libraries	(${PROJECT_NAME} PUBLIC NineS SceSystemService SceUserService kernel_sys elfldr sqlite3)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_dependencies(${PROJECT_NAME} daemon util shellui)
+
+# Copy bootstrapper.elf as test.elf before processing
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test.elf
+    COMMENT "Copying ${PROJECT_NAME}.elf to test.elf"
+)
+
 # Add post-build command
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} --remove-section .debug_info --remove-section .debug_abbrev --remove-section .debug_line --remove-section .debug_str --remove-section .debug_loc --remove-section .debug_aranges --remove-section .debug_ranges --remove-section .debug_pubnames --remove-section .debug_pubtypes --remove-section .debug_frame --strip-unneeded $<TARGET_FILE:${PROJECT_NAME}>
