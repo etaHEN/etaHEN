@@ -30,7 +30,7 @@
       </setting_list>
 
       <setting_list id="id_etahen_credits" title="etaHEN Credits" second_title="Credits and Supporters">
-      <label id="id_etahen_creds_display" title="★ etaHEN Beta 2.4" style="center"/>
+      <label id="id_etahen_creds_display" title="★ etaHEN Beta 2.5" style="center"/>
       <label id="id_lead_devs" title="★ Lead Developer(s) ★" style="center"/>
       <label id="id_lead_devs_2" title="- LM (X @LightningMods_, GitHub @LightningMods, Discord @lm_dev)" style="center"/>
       <label id="id_ddkdkd" title="★ etaHEN Contributors ★" style="center"/>

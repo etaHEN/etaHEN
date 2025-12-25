@@ -32,7 +32,6 @@ along with this program; see the file COPYING. If not, see
 #include "../../extern/tiny-json/tiny-json.hpp"
 #include "proc.h"
 
-#include <json.hpp>
 #include <fstream>
 #include <ctime>
 #include <iostream>
@@ -254,86 +253,6 @@ void Widget_Append_Child(MonoObject* widget, MonoObject* child)
     args[0] = child;
 
     mono_runtime_invoke(appendChild, widget, args, nullptr);
-}
-
-
-
-int endswith(const char *string, const char *suffix)
-{
-  size_t suffix_len = strlen(suffix);
-  size_t string_len = strlen(string);
-
-  if (string_len < suffix_len)
-  {
-    return 0;
-  }
-
-  return strncmp(string + string_len - suffix_len, suffix, suffix_len) != 0;
-}
-
-int chmod_bins(const char *path)
-{
-  char buf[PATH_MAX + 1];
-  struct dirent *entry;
-  struct stat st;
-  DIR *dir;
-
-  if (stat(path, &st) != 0)
-  {
-    return -1;
-  }
-
-  if (endswith(path, ".prx") || endswith(path, ".sprx") || endswith(path, "/eboot.bin"))
-  {
-    chmod(path, 0755);
-  }
-
-  if (S_ISDIR(st.st_mode))
-  {
-    dir = opendir(path);
-    while (1)
-    {
-      entry = readdir(dir);
-      if (entry == nullptr)
-      {
-        break;
-      }
-
-      if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
-      {
-        continue;
-      }
-
-      sprintf(buf, "%s/%s", path, entry->d_name);
-      chmod_bins(buf);
-    }
-
-    closedir(dir);
-  }
-
-  return 0;
-}
-
-int Launch_FG_Game(const char *path, const char* title_id, const char* title){
-  app_launch_ctx_t ctx = {0};
-  char dst[PATH_MAX + 1];
-
-  strcpy(dst, "/system_ex/app/");
-  strcat(dst, title_id);
-  //mkdir(dst, 0777);
-
-  sceUserServiceInitialize(0);
-  sceUserServiceGetForegroundUser(&ctx.user_id);
-  IPC_Client& main_ipc = IPC_Client::getInstance(false);
-  if(!main_ipc.Remount(path, dst)){
-    // shellui_log("Failed to mount app");
-    return -1;
-  }
-  chmod_bins(path);
-
-  char *argv[] = {(char*)title, nullptr};
-
-  return sceSystemServiceLaunchApp(title_id, &argv[0], &ctx);
 }
 
 int find_and_replace(unsigned char * buffer, int buffer_size,
@@ -657,17 +576,27 @@ bool LoadSettings()
     const char *jb_debug_msg_str = ini_parser_get(&parser, "Settings.APP_JB_Debug_Msg", "0");
     const char *game_opts_str = ini_parser_get(&parser, "Settings.etaHEN_Game_Options", "1");
     const char *auto_eject_disc_str = ini_parser_get(&parser, "Settings.auto_eject_disc", "0");
-	const char* overlay_ram = ini_parser_get(&parser, "Settings.overlay_ram", "1");
-	const char* overlay_cpu = ini_parser_get(&parser, "Settings.overlay_cpu", "1");
-	const char* overlay_gpu = ini_parser_get(&parser, "Settings.overlay_gpu", "1");
-	const char* overlay_fps = ini_parser_get(&parser, "Settings.overlay_fps", "0");
-	const char* overlay_ip = ini_parser_get(&parser, "Settings.overlay_ip", "0");
-	const char* overlay_position = ini_parser_get(&parser, "Settings.Overlay_pos", "0"); // 0: Top-Left, 1: Top-Right, 2: Bottom-Left, 3: Bottom-Right
-	const char* overlay_kstuff = ini_parser_get(&parser, "Settings.overlay_kstuff", "0");
+	  const char* overlay_ram = ini_parser_get(&parser, "Settings.overlay_ram", "1");
+	  const char* overlay_cpu = ini_parser_get(&parser, "Settings.overlay_cpu", "1");
+	  const char* overlay_gpu = ini_parser_get(&parser, "Settings.overlay_gpu", "1");
+	  const char* overlay_fps = ini_parser_get(&parser, "Settings.overlay_fps", "0");
+	  const char* overlay_ip = ini_parser_get(&parser, "Settings.overlay_ip", "0");
+	  const char* overlay_position = ini_parser_get(&parser, "Settings.Overlay_pos", "0"); // 0: Top-Left, 1: Top-Right, 2: Bottom-Left, 3: Bottom-Right
+	  const char* overlay_kstuff = ini_parser_get(&parser, "Settings.overlay_kstuff", "0");
+    const char* enable_kstuff_on_close = ini_parser_get(&parser, "Settings.enable_kstuff_on_close", "0");
+    const char* id_pause_kstuff_on_open = ini_parser_get(&parser, "Settings.pause_kstuff_on_open", "0");
+    const char* id_pause_kstuff_on_open_secs = ini_parser_get(&parser, "Settings.pause_kstuff_on_open_secs", "10");
+    const char* fan_threshold = ini_parser_get(&parser, "Settings.fan_threshold", "77");
+    const char* enable_fan_speed = ini_parser_get(&parser, "Settings.enable_fan_speed", "0");
 
 
     // Check if the strings are not nullptr before converting
-	global_conf.overlay_kstuff = overlay_kstuff ? atoi(overlay_kstuff) : 0;
+    global_conf.enable_kstuff_on_close = enable_kstuff_on_close ? atoi(enable_kstuff_on_close) : 0;
+    global_conf.pause_kstuff_on_open = id_pause_kstuff_on_open ? atoi(id_pause_kstuff_on_open) : 0;
+    global_conf.pause_kstuff_on_open_secs = id_pause_kstuff_on_open_secs ? atoi(id_pause_kstuff_on_open_secs) : 10;
+    global_conf.enable_fan_speed = enable_fan_speed ? atoi(enable_fan_speed) : 0;
+	  global_conf.overlay_kstuff = overlay_kstuff ? atoi(overlay_kstuff) : 0;
+    global_conf.fan_threshold = fan_threshold ? atoi(fan_threshold) : 77;
     global_conf.FTP = FTP_str ? atoi(FTP_str) : 0;
     global_conf.etaHEN_game_opts = game_opts_str ? atoi(game_opts_str) : 0;
     global_conf.display_tids = dip_tid ? atoi(dip_tid) : 0;
@@ -693,6 +622,9 @@ bool LoadSettings()
 	global_conf.overlay_cpu = overlay_cpu ? atoi(overlay_cpu) : 1;
 	global_conf.overlay_gpu = overlay_gpu ? atoi(overlay_gpu) : 1;
 	global_conf.overlay_fps = overlay_fps ? atoi(overlay_fps) : 0;
+  if (global_conf.overlay_fps ){
+      touch_file("/system_tmp/fps_enabled");
+  }
 	global_conf.overlay_ip = overlay_ip ? atoi(overlay_ip) : 0;
 
     //apply ovelay pos  values
@@ -808,6 +740,11 @@ bool SaveSettings()
   buff += "overlay_fps=" + std::to_string(global_conf.overlay_fps) + "\n";
   buff += "overlay_ip=" + std::to_string(global_conf.overlay_ip) + "\n";
   buff += "overlay_kstuff=" + std::to_string(global_conf.overlay_kstuff) + "\n";
+  buff += "enable_kstuff_on_close=" + std::to_string(global_conf.enable_kstuff_on_close) + "\n";
+  buff += "pause_kstuff_on_open=" + std::to_string(global_conf.pause_kstuff_on_open) + "\n";
+  buff += "enable_fan_speed=" + std::to_string(global_conf.enable_fan_speed) + "\n";
+  buff += "fan_threshold=" + std::to_string(global_conf.fan_threshold) + "\n";
+  buff += "pause_kstuff_on_open_secs=" + std::to_string(global_conf.pause_kstuff_on_open_secs) + "\n";
   //shortcuts
   buff += "Cheats_shortcut_opt=" + std::to_string(global_conf.cheats_shortcut_opt) + "\n";
   buff += "Toolbox_shortcut_opt=" + std::to_string(global_conf.toolbox_shortcut_opt) + "\n";
@@ -1166,7 +1103,7 @@ void generate_plugin_xml(std::string &xml_buffer, bool plugins_xml)
         }
         else if(is_elf){
           strncpy(header.prefix, "<elf>", 5);
-          strncpy(header.plugin_version, "?.??", 4);
+          strncpy(header.plugin_version, "", 4);
         }
         shellui_log("Valid plugin file.");
 
@@ -1181,11 +1118,13 @@ void generate_plugin_xml(std::string &xml_buffer, bool plugins_xml)
 
         shown_path = (path.substr(0, 4) == "/usb") ? "/mnt" + path : shown_path;
 
+	      std::string version_str = !is_elf ? "(v" + std::string(header.plugin_version) + ")" : "";
+
         id = plugins_xml ? "id_plugin_" + std::to_string(toggle_switch_id++) : "id_auto_plugin_" + std::to_string(toggle_switch_id++);
         if (plugins_xml)
-          toggle_switch = "<toggle_switch id=\"" + id + "\" title=\"" + entry->d_name + " (v" + header.plugin_version + ")\" second_title=\"Start/Stop " + entry->d_name + " (Path: " + shown_path + ") (" + (is_elf ? entry->d_name : header.titleID) + ")\" value=\"0\"/>\n";
+          toggle_switch = "<toggle_switch id=\"" + id + "\" title=\"" + entry->d_name + " " + version_str + "\" second_title=\"Start/Stop " + entry->d_name + " (Path: " + shown_path + ") (" + (is_elf ? entry->d_name : header.titleID) + ")\" value=\"0\"/>\n";
         else
-          toggle_switch = "<toggle_switch id=\"" + id + "\" title=\"" + entry->d_name + " (v" + header.plugin_version + ")\" second_title=\"Enable/Disable auto start for " + entry->d_name + "  (" + shown_path + ")\" value=\"0\"/>\n";
+          toggle_switch = "<toggle_switch id=\"" + id + "\" title=\"" + entry->d_name + " " + version_str + "\" second_title=\"Enable/Disable auto start for " + entry->d_name + "  (" + shown_path + ")\" value=\"0\"/>\n";
 
         xml_buffer += toggle_switch;
         new_list.tid = (is_elf ? entry->d_name : header.titleID);
@@ -1372,213 +1311,6 @@ void escapeXML(std::string& input)
     }
 }
 
-bool getContentInfofromJson(const std::string& file_path, std::string& tid, std::string& title, std::string &ver) {
-  try {
-      std::ifstream input_file(file_path);
-      if (!input_file.is_open()) {
-          shellui_log("Failed to open file for reading: %s", file_path.c_str());
-          return false;
-      }
-
-      json j;
-      input_file >> j;
-      input_file.close();
-
-      if (!j.contains("titleId")) {
-          shellui_log("JSON does not contain a required value");
-          return false;
-      }
-
-      tid = j["titleId"];
-
-      #if SHELL_DEBUG==1 
-      shellui_log("getContentInfofromJson Title ID: %s", tid.c_str());
-      #endif
-
-      if (j.contains("localizedParameters") && j["localizedParameters"].contains("defaultLanguage")) {
-          std::string defaultLanguage = j["localizedParameters"]["defaultLanguage"];
-          if (j["localizedParameters"].contains(defaultLanguage) && j["localizedParameters"][defaultLanguage].contains("titleName")) {
-              title = j["localizedParameters"][defaultLanguage]["titleName"];
-          }
-      }
-      else
-          title = "App Title not found";
-
-      if (j.contains("contentVersion"))
-          ver = j["contentVersion"];
-
-  }
-  catch (const std::exception& e) {
-    shellui_log("Exception: %s", e.what());
-    return false;
-}
-
-  return true;
-}
-int list_directories(const char *path) {
-  DIR *dir;
-  struct dirent *entry;
-  struct stat statbuf;
-  char fullpath[1024];
-  
-  // Open the directory
-  if ((dir = opendir(path)) == NULL) {
-      perror("opendir");
-      return -1;
-  }
-  
-  shellui_log("Directories in %s:\n", path);
-  
-  // Read directory entries
-  while ((entry = readdir(dir)) != NULL) {
-      // Skip "." and ".." entries
-      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-          continue;
-          
-      // Construct the full path
-      snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
-      
-      // Get information about the file
-      if (stat(fullpath, &statbuf) == -1) {
-          perror("stat");
-          continue;
-      }
-      
-      // Check if it's a directory
-      if (S_ISDIR(statbuf.st_mode)) {
-        shellui_log("%s", entry->d_name);
-      }
-  }
-  
-  closedir(dir);
-  return 0;
-}
-
-// Function to escape a string for XML
-void generate_games_xml(std::string &xml_buffer, bool game_shortcut_activated)
-{
-  struct dirent *entry;
-  // do outside func
-  // games_list.clear();
-
-  std::vector<std::string> directories = {
-    "/user/data/etaHEN/games",
-    "/usb0/etaHEN/games",
-    "/usb1/etaHEN/games",
-    "/usb2/etaHEN/games",
-    "/usb3/etaHEN/games",
-    "/mnt/ext1/etaHEN/games",
-    "/mnt/ext2/etaHEN/games",
-    "/mnt/ext0/etaHEN/games",
-  };
- // list_directories("/mnt/sandbox/NPXS40087_000");
-
-  std::string list_id = game_shortcut_activated ? "id_debug_settings" : "id_ps5_backups";
-
-  xml_buffer =  "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n"
-      "<system_settings version=\"1.0\" plugin=\"debug_settings_plugin\">\n"
-      "\n";
-
-  xml_buffer += "<setting_list id=\"" + list_id + "\" title=\"(Beta) PS5 webMAN Games\">\n";
-
-
-  // Initialize random number generator
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<int> dist(1000, 9999);
-
-  for (const auto &directory : directories)
-  {
-    DIR *dir = opendir(directory.c_str());
-    // Open the directory
-    if (!dir)
-    {
-      #if SHELL_DEBUG==1 
-      shellui_log("Failed to open directory: %s", directory.c_str());
-      #endif
-      continue;
-    }
-    
-    // Iterate over each entry in the games directory
-    while ((entry = readdir(dir)) != nullptr)
-    {
-      // Skip . and .. directories
-      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-        continue;
-        
-      std::string game_dir = directory + "/" + entry->d_name;
-      
-      // Check if this is a directory by trying to open it
-      struct stat st;
-      if (stat(game_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
-        #if SHELL_DEBUG==1 
-        shellui_log("Skipping non-directory: %s", game_dir.c_str());
-        #endif
-        continue;
-      }
-        
-      std::string param_path = game_dir + "/sce_sys/param.json";
-      std::string icon_path = game_dir + "/sce_sys/icon0.png";
-      
-      // Check if param.json exists
-      if (access(param_path.c_str(), F_OK) != 0) {
-        #if SHELL_DEBUG==1 
-        shellui_log("No param.json found in: %s", game_dir.c_str());
-        #endif
-        continue;
-      }
-      #if SHELL_DEBUG==1 
-      shellui_log("Found Game: %s", game_dir.c_str());
-      #endif
-      
-      // Parse the JSON to get title_id, content_id, title, and version
-      std::string title_id, title, ver;
-      if (!getContentInfofromJson(param_path, title_id, title, ver)) {
-        #if SHELL_DEBUG==1 
-        shellui_log("Failed to parse param.json in: %s", game_dir.c_str());
-        #endif
-        continue;
-      }
-      
-      std::string shown_path = game_dir; // Initialize with the original path
-      
-      const std::string prefix = "/user";
-      if (shown_path.find(prefix) == 0) { // Check if the path starts with "/user"
-         shown_path = shown_path.substr(prefix.length()); // Remove "/user"
-      }
-      
-      shown_path = (game_dir.substr(0, 4) == "/usb") ? "/mnt" + game_dir : shown_path;
-      // Generate a random number for the ID
-      int random_num = dist(gen);
-      
-      // Escape the icon path for XML
-      escapeXML(icon_path);
-      
-      // Create and populate a GameEntry
-      GameEntry game;
-      game.tid = title_id;
-      game.title = title;
-      game.version = ver;
-      game.path = shown_path;
-      game.dir_name = entry->d_name;
-      game.icon_path = icon_path;
-      game.id = "id_game_" + title_id + "_" + std::to_string(random_num);
-      
-      // Add to the games list
-      games_list.push_back(game);
-      
-      // Format the button XML
-      std::string button = "<button id=\"" + game.id + "\" title=\"(" + title_id + ") " + title + 
-      "\" icon=\"" + icon_path + "\" second_title=\"" + shown_path + " | Version: " + ver + "\"/>\n";
-      
-      xml_buffer += button;
-    }
-    //shellui_log("cloaing dir %s", directory.c_str());
-    closedir(dir);
-  }
-
-  xml_buffer += "</setting_list>\n</system_settings> ";
-}
 
 void ReloadRNPSApp(const char* title_id){
     void (*ReloadApp)(MonoString* tid) = (void(*)(MonoString*))Get_Address_of_Method(react_common_img, "ReactNative.Vsh.Common", "ReactApplicationSceneManager", "ReloadApp", 1);
@@ -1596,7 +1328,12 @@ void generate_cheats_xml(std::string &new_xml, std::string& not_open_tid, bool r
   std::string list_id = running_as_debug_settings ? "id_debug_settings" : "id_cheat_title";
 
   // buttons for if nothing is found
-  std::string dl_cheats = R"(<button id="id_dl_cheats" title="Download/Update Cheats" second_title="Downloads the latest cheats from the PS5_Cheats GitHub repo"/>)";
+  std::string dl_cheats = R"(<list id="id_selected_cheats_repo" title="Cheats Repo Source" >
+                   <list_item id="id_selected_cheats_repo_1" title="etaHEN PS5 Cheats repo" value="0"/>
+                   <list_item id="id_selected_cheats_repo_2" title="GoldHEN PS4 Cheats repo" value="1"/>
+                 </list>
+                <button id="id_dl_cheats" title="Download/Update Cheats" second_title="Downloads the latest cheats from the selected GitHub repo"/>)";
+
   std::string reload_cheats = R"(<button id="id_reload_cheats" title="Cache and reload Cheats list" second_title="New cheats added to /data/etaHEN/cheats/EXT_HERE will be cached and the cheats list will be reloaded"/>)";
   //
 
@@ -1859,7 +1596,7 @@ void generate_plapps_xml(std::string& new_xml) {
       game.dir_name = entry->d_name;
       escapeXML(game.dir_name);
       game.icon_path = icon_path;
-      game.id = "id_game_" + title_id + "_" + std::to_string(random_num);
+      game.id = "id_etahen_pl_loader_" + title_id + "_" + std::to_string(random_num);
       
       // Add to the games list
       games_list.push_back(game);

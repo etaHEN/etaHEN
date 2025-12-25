@@ -4,9 +4,9 @@ PS5_PORT ?= 9021
 ELF := hen.elf
 BIN := hen.bin
 
-CFLAGS := -std=c++11 -Wall -Werror -D_KERNEL -I./include -O2 -fno-builtin -nostdlib -fno-stack-protector -fno-plt -fPIC -Wno-error=frame-address -Wno-unused-const-variable
+CFLAGS := -std=c++11 -Wall -Werror -D_KERNEL -I./include -O2 -fno-builtin -nostartfiles -nostdlib -fno-stack-protector -fno-plt -fPIC -Wno-error=frame-address -I${PS5_PAYLOAD_SDK}include/freebsd -g3
 #SFLAGS := -nostartfiles -nostdlib -fPIC
-LFLAGS := -Xlinker -T ./link.x -Wl,--build-id=none -nostartfiles
+LFLAGS := -Xlinker -T ./link.x -Wl,--build-id=none
 
 ODIR        := build
 SDIR        := src

@@ -72,7 +72,63 @@ along with this program; see the file COPYING. If not, see
 
  extern uint8_t fps_prx_start[];
  extern const unsigned int fps_prx_size;
+
+int sceNotificationSend(int userId, bool isLogged, const char* payload);
  }
+
+ 
+const char json_payload[] =
+     "{\n"
+     "  \"rawData\": {\n"
+     "    \"viewTemplateType\": \"InteractiveToastTemplateB\",\n"
+     "    \"channelType\": \"Downloads\",\n"
+     "    \"useCaseId\": \"IDC\",\n"
+     "    \"toastOverwriteType\": \"No\",\n"
+     "    \"isImmediate\": true,\n"
+     "    \"priority\": 100,\n"
+     "    \"viewData\": {\n"
+     "      \"icon\": {\n"
+     "        \"type\": \"Url\",\n"
+     "        \"parameters\": {\n"
+     "          \"url\": \"/user/data/etaHEN/etahen.png\"\n"
+     "        }\n"
+     "      },\n"
+     "      \"message\": {\n"
+     "        \"body\": \"etaHEN is starting...\"\n"
+     "      },\n"
+     "      \"subMessage\": {\n"
+     "        \"body\": \"Please Wait For The Welcome Message\"\n"
+     "      },\n"
+     "      \"actions\": [\n"
+     "        {\n"
+     "          \"actionName\": \"Go to Debug Settings\",\n"
+     "          \"actionType\": \"DeepLink\",\n"
+     "          \"defaultFocus\": true,\n"
+     "          \"parameters\": {\n"
+     "            \"actionUrl\": \"pssettings:play?function=debug_settings\"\n"
+     "          }\n"
+     "        }\n"
+     "      ]\n"
+     "    },\n"
+     "    \"platformViews\": {\n"
+     "      \"previewDisabled\": {\n"
+     "        \"viewData\": {\n"
+     "          \"icon\": {\n"
+     "            \"type\": \"Predefined\",\n"
+     "            \"parameters\": {\n"
+     "              \"icon\": \"download\"\n"
+     "            }\n"
+     "          },\n"
+     "          \"message\": {\n"
+     "            \"body\": \"etaHEN is starting...\"\n"
+     "          }\n"
+     "        }\n"
+     "      }\n"
+     "    }\n"
+     "  },\n"
+     "  \"createdDateTime\": \"2025-12-14T03:14:51.473Z\",\n"
+     "  \"localNotificationId\": \"588193127\"\n"
+     "}";
  
  /******************************************************************************
   * Macros and Constants
@@ -280,8 +336,22 @@ static void cleanup(void);
         return;
     }
     close(fd);
-#endif    
-if (!if_exists("/data/etaHEN/assets/store.png")) {
+#endif
+#if 0
+   /// if (!if_exists("/data/etaHEN/fps.prx")) {
+        int fd = open("/data/etaHEN/fps.prx", O_WRONLY | O_CREAT | O_TRUNC, 0777);
+        if (fd == -1) {
+            perror("open failed");
+            return;
+        }
+        if (write(fd, &fps_prx_start, fps_prx_size) == -1) {
+            perror("write failed");
+        }
+        close(fd);
+  //  }
+#endif
+
+    if (!if_exists("/data/etaHEN/assets/store.png")) {
       int fd = open("/data/etaHEN/assets/store.png", O_WRONLY | O_CREAT | O_TRUNC, 0666);
       if (fd == -1) {
         perror("open failed");
@@ -300,6 +370,18 @@ if (!if_exists("/data/etaHEN/assets/store.png")) {
         return;
       }
       if (write(fd, & webman_icon_start, webman_icon_size) == -1) {
+        perror("write failed");
+      }
+      close(fd);
+    }
+
+    if (!if_exists("/data/etaHEN/etahen.png")) {
+      int fd = open("/data/etaHEN/etahen.png", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+      if (fd == -1) {
+        perror("open failed");
+        return;
+      }
+      if (write(fd, & sicon_start, sicon_size) == -1) {
         perror("write failed");
       }
       close(fd);
@@ -932,9 +1014,9 @@ bool sceKernelIsTestKit() {
   return if_exists("/system/priv/lib/libSceDeci5Ttyp.sprx");
 }
 #define PUBLIC_TEST 0
-#define EXPIRE_YEAR 2025
-#define EXPIRE_MONTH 12
-#define EXPIRE_DAY 25
+#define EXPIRE_YEAR 2026
+#define EXPIRE_MONTH 1
+#define EXPIRE_DAY 1
 
 
 bool isPastBetaDate(int year, int month, int day);
@@ -1034,16 +1116,14 @@ int main(void) {
     }
   }
 
-
-  notify("[Bootstrapper] etaHEN is starting...\n    DO NOT EXIT    \nwait for "
-         "the etaHEN welcome message");
-
   klog_puts("============== Spawner (Bootstrapper) Started =================");
 
   mkdir("/data/etaHEN", 0777);
   mkdir("/data/etaHEN/plugins", 0777);
   mkdir("/data/etaHEN/payloads", 0777);
   mkdir("/data/etaHEN/daemons", 0777);
+  mkdir("/data/etaHEN/assets", 0777);
+  mkdir("/data/etaHEN/games", 0777);
 
   klog_printf("Registering signal handler ...");
   fault_handler_init(cleanup);
@@ -1066,6 +1146,8 @@ int main(void) {
   write_embedded_assets();
   klog_printf("   Written!\n");
 
+	sceNotificationSend(0xFE, true, &json_payload[0]);
+
   klog_printf("Unmounting /update forcefully ...");
   // block updates
   unlink("/update/PS5UPDATE.PUP");
@@ -1086,7 +1168,7 @@ int main(void) {
       klog_puts("kstuff loading disabled in config.ini or no_kstuff file found");
   }
   if (!dont_load_kstuff && sys_ver.version >= 0x3000000) {
-      notify("Loading kstuff ...");
+      //notify("Loading kstuff ...");
 
       bool cleanup_kstuff = false;
       uint8_t* kstuff_address = get_kstuff_address(cleanup_kstuff);

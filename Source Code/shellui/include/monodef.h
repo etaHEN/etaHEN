@@ -59,15 +59,6 @@ typedef enum {
 	MONO_IMAGE_IMAGE_INVALID
 } MonoImageOpenStatus;
 
-typedef struct app_launch_ctx
-{
-  int structsize;
-  int user_id;
-  int app_opt;
-  uint64_t crash_report;
-  int check_flag;
-} app_launch_ctx_t;
-
 typedef guint32 mono_array_size_t;
 typedef gint32 mono_array_lower_bound_t;
 
@@ -395,7 +386,7 @@ extern "C" {
 	} while (0)
 
 int replace_all(unsigned char * buffer, int * buffer_size, int buffer_capacity, const char * target, const char * replacement);
-int sceSystemServiceLaunchApp(const char *, char **, app_launch_ctx_t *);
+
 #ifdef __cplusplus
 }
 #endif

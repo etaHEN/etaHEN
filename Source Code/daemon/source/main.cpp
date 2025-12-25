@@ -107,6 +107,7 @@ extern "C" {
     // External data
     extern uint8_t ps5debug_start[];
     extern const unsigned int ps5debug_size;
+    int sceNotificationSend(int userId, bool isLogged, const char* payload);
 
 }
 
@@ -297,7 +298,7 @@ int ItemzLaunchByUri(const char* uri) {
 
 bool cmd_enable_toolbox();
 void LoadSettings();
-
+bool is_800 = false;
 int main() {
     char buz[255];
     pthread_t fifo_thr = nullptr;
@@ -332,6 +333,7 @@ int main() {
     bool is_lite = if_exists("/system_tmp/lite_mode");
     bool toolbox_only = (fw_ver >= 0x10000);
     bool no_ps5debug = (fw_ver >= 0x800);
+    is_800 = (fw_ver >= 0x800);
 
 
     LoadSettings();
@@ -366,13 +368,60 @@ int main() {
         if (!elfldr_spawn("/", STDOUT_FILENO, ps5debug_start, "ps5debug"))
             notify(true, "Failed to load PS5Debug");
     }
-      
-    // Display IP and service info
-    std::string dpi_url = "Direct Package Installer V2: http://" + std::string(buz) + ":12800";
-    notify(true,
-          "etaHEN 2.4b by LM\n\nAIO HEN\n\nCurrent IP: %s\n\nFTP Port: "
-          "1337\nKlog Port: 9081\n%s",
-          buz, global_conf.DPIv2 ? dpi_url.c_str() : "");
+
+     const char json_payload[] =
+     "{\n"
+     "  \"rawData\": {\n"
+     "    \"viewTemplateType\": \"InteractiveToastTemplateB\",\n"
+     "    \"channelType\": \"Downloads\",\n"
+     "    \"useCaseId\": \"IDC\",\n"
+     "    \"toastOverwriteType\": \"No\",\n"
+     "    \"isImmediate\": true,\n"
+     "    \"priority\": 100,\n"
+     "    \"viewData\": {\n"
+     "      \"icon\": {\n"
+     "        \"type\": \"Url\",\n"
+     "        \"parameters\": {\n"
+     "          \"url\": \"/user/data/etaHEN/etahen.png\"\n"
+     "        }\n"
+     "      },\n"
+     "      \"message\": {\n"
+     "        \"body\": \"etaHEN 2.5B AIO HEN By LM\"\n"
+     "      },\n"
+     "      \"subMessage\": {\n"
+     "        \"body\": \"Welcome to etaHEN\"\n"
+     "      },\n"
+     "      \"actions\": [\n"
+     "        {\n"
+     "          \"actionName\": \"Go to the etaHEN Toolbox\",\n"
+     "          \"actionType\": \"DeepLink\",\n"
+     "          \"defaultFocus\": true,\n"
+     "          \"parameters\": {\n"
+     "            \"actionUrl\": \"pssettings:play?function=debug_settings\"\n"
+     "          }\n"
+     "        }\n"
+     "      ]\n"
+     "    },\n"
+     "    \"platformViews\": {\n"
+     "      \"previewDisabled\": {\n"
+     "        \"viewData\": {\n"
+     "          \"icon\": {\n"
+     "            \"type\": \"Predefined\",\n"
+     "            \"parameters\": {\n"
+     "              \"icon\": \"download\"\n"
+     "            }\n"
+     "          },\n"
+     "          \"message\": {\n"
+     "            \"body\": \"etaHEN Running\"\n"
+     "          }\n"
+     "        }\n"
+     "      }\n"
+     "    }\n"
+     "  },\n"
+     "  \"createdDateTime\": \"2025-12-14T03:14:51.473Z\",\n"
+     "  \"localNotificationId\": \"588193127\"\n"
+     "}";
+	sceNotificationSend(0xFE, true, &json_payload[0]);
 
 
     etaHEN_log("StartUp thread created!! - welcome to etaHEN");

@@ -24,6 +24,7 @@ along with this program; see the file COPYING. If not, see
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/ioctl.h>
 #include <strings.h>
 #include <sys/_pthreadtypes.h>
 #include <sys/_stdint.h>
@@ -79,6 +80,9 @@ extern const unsigned int shellui_elf_size;
 
 extern uint8_t fps_elf_start[];
 extern const unsigned int fps_elf_size;
+
+extern uint8_t dumper_elf_start[];
+extern const unsigned int dumper_elf_size;
 
 bool Inject_Toolbox(int pid, uint8_t *elf);
 int sceKernelGetAppInfo(int pid, app_info_t *title);
@@ -346,50 +350,93 @@ int change_permissions_recursive(const char* path) {
 }
 
 
+#include <sys/stat.h>
+
+struct ConfigState {
+  time_t last_modified = 0;
+};
+
+ConfigState config_state;
+
 void LoadSettings() {
-  if (if_exists("/data/etaHEN/config.ini")) {
-    IniParser parser;
-    if (ini_parser_load( & parser, "/data/etaHEN/config.ini")) {
-      const char * libhijacker_cheats_str =
-        ini_parser_get( & parser, "Settings.libhijacker_cheats", "0");
-      const char * PS5Debug_str =
-        ini_parser_get( & parser, "Settings.PS5Debug", "0");
-      const char * start_option =
-        ini_parser_get( & parser, "Settings.StartOption", "0");
-      const char * DPI_v2 = ini_parser_get( & parser, "Settings.DPI_v2", "0");
-      const char * auto_eject_disc = ini_parser_get( & parser, "Settings.auto_eject_disc", "0");
-      // Check if the std::strings are not nullptr before converting
-      global_conf.libhijacker_cheats =
-        libhijacker_cheats_str ? atoi(libhijacker_cheats_str) : 0;
-      global_conf.PS5Debug = PS5Debug_str ? atoi(PS5Debug_str) : 0;
-      global_conf.start_opt =
-        start_option ? (StartOpts) atoi(start_option) : NONE;
-      global_conf.DPIv2 = DPI_v2 ? atoi(DPI_v2) : 0;
-      global_conf.toolbox_auto_start = atoi(ini_parser_get( & parser, "Settings.toolbox_auto_start", "1"));
-
-      global_conf.seconds = atol(ini_parser_get( & parser, "Settings.Rest_Mode_Delay_Seconds", "0"));
-      global_conf.debug_app_jb_msg = atoi(ini_parser_get( & parser, "Settings.APP_JB_Debug_Msg", "0"));
-      global_conf.auto_eject_disc = auto_eject_disc ? atoi(auto_eject_disc) : 0;
-
-      if (if_exists("/mnt/usb0/toolbox_auto_start"))
-        global_conf.toolbox_auto_start = false;
-    } else {
-      notify(true, "Failed to Read the Settings file");
-    }
-  } else {
-    // Create default config if it doesn't exist
+  struct stat file_stat;
+  const char* config_path = "/data/etaHEN/config.ini";
+  
+  // Check if file exists and get its modification time
+  if (stat(config_path, &file_stat) != 0) {
+    // File doesn't exist, create default config
+    etaHEN_log("[Daemon] Config file not found. Creating default...");
     std::string ini_file(
       "[Settings]\nPS5Debug=0\nFTP=1\nlaunch_itemzflow="
       "0\ndiscord_rpc=0\nAllow_data_in_sandbox=1\nDPI=0\ntoolbox_auto_start=1\nDPI_v2=0\nKlog=0\nAPP_JB_Debug_Msg=0\nauto_eject_disc=0\n");
-    int fd = open("/data/etaHEN/config.ini", O_WRONLY | O_CREAT | O_TRUNC, 0777);
+    int fd = open(config_path, O_WRONLY | O_CREAT | O_TRUNC, 0777);
     if (fd >= 0) {
       write(fd, ini_file.c_str(), ini_file.length());
       close(fd);
       notify(true, "etaHEN config created! @ /data/etaHEN/config.ini");
+      config_state.last_modified = 0;
     }
+    return;
+  }
+  
+  // Only reload if file has been modified since last load
+  if (file_stat.st_mtime <= config_state.last_modified) {
+    return; // File hasn't changed, skip reload
+  }
+  
+  // File has changed, proceed with loading
+  etaHEN_log("[Daemon] Loading Settings...");
+  
+  IniParser parser;
+  if (ini_parser_load(&parser, config_path)) {
+    etaHEN_log("[Daemon] Reading Settings...");
+    
+    const char * libhijacker_cheats_str =
+      ini_parser_get(&parser, "Settings.libhijacker_cheats", "0");
+    const char * PS5Debug_str =
+      ini_parser_get(&parser, "Settings.PS5Debug", "0");
+    const char * start_option =
+      ini_parser_get(&parser, "Settings.StartOption", "0");
+    const char * DPI_v2 = ini_parser_get(&parser, "Settings.DPI_v2", "0");
+    const char * auto_eject_disc =
+      ini_parser_get(&parser, "Settings.auto_eject_disc", "0");
+    const char* fan_threshold =
+      ini_parser_get(&parser, "Settings.fan_threshold", "77");
+    const char* enable_fan_speed =
+      ini_parser_get(&parser, "Settings.enable_fan_speed", "0");
+    const char* overlay_fps =
+      ini_parser_get(&parser, "Settings.overlay_fps", "0");
+
+    etaHEN_log("fan_threshold: %s", fan_threshold);
+    etaHEN_log("enable_fan_speed: %s", enable_fan_speed);
+    
+    global_conf.fan_threshold = fan_threshold ? atoi(fan_threshold) : 77;
+    global_conf.enable_fan_speed = enable_fan_speed ? atoi(enable_fan_speed) : 0;
+    global_conf.overlay_fps = overlay_fps ? atoi(overlay_fps) : 0;
+    global_conf.libhijacker_cheats =
+      libhijacker_cheats_str ? atoi(libhijacker_cheats_str) : 0;
+    global_conf.PS5Debug = PS5Debug_str ? atoi(PS5Debug_str) : 0;
+    global_conf.start_opt =
+      start_option ? (StartOpts) atoi(start_option) : NONE;
+    global_conf.DPIv2 = DPI_v2 ? atoi(DPI_v2) : 0;
+    global_conf.toolbox_auto_start =
+      atoi(ini_parser_get(&parser, "Settings.toolbox_auto_start", "1"));
+
+    global_conf.seconds =
+      atol(ini_parser_get(&parser, "Settings.Rest_Mode_Delay_Seconds", "0"));
+    global_conf.debug_app_jb_msg =
+      atoi(ini_parser_get(&parser, "Settings.APP_JB_Debug_Msg", "0"));
+    global_conf.auto_eject_disc = auto_eject_disc ? atoi(auto_eject_disc) : 0;
+
+    if (if_exists("/mnt/usb0/toolbox_auto_start"))
+      global_conf.toolbox_auto_start = false;
+    
+    // Update last modified time after successful load
+    config_state.last_modified = file_stat.st_mtime;
+  } else {
+    notify(true, "Failed to Read the Settings file");
   }
 }
-
 
 static pid_t find_pid(const char *name) {
   int mib[4] = {1, 14, 8, 0};
@@ -806,12 +853,83 @@ bool HookGame(UniquePtr<Hijacker>& hijacker, uint64_t alsr_b) {
 }
 
 int done_appid;
+extern "C" int sceKernelGetCurrentFanDuty(int *unk, int *duty);
+bool set_fan_threshold(int THRESHOLDTEMP) {
+
+   if(THRESHOLDTEMP > 100){
+     THRESHOLDTEMP = 100;
+   }
+
+   int fd = open("/dev/icc_fan", O_RDONLY, 0);
+   if (fd <= 0) {
+     notify(true, "Unable to Open Fan Settings!");
+     return false;
+   }
+
+    char data[10] = {0x00, 0x00, 0x00, 0x00, 0x00, static_cast<char>(THRESHOLDTEMP), 0x00, 0x00, 0x00, 0x00};
+    if(ioctl(fd, 0xC01C8F07, data) < 0) {
+        notify(true, "Unable to Set Fan Speed!");
+        close(fd);
+        return false;
+    }
+    close(fd);
+    //etaHEN_log("Fan speed set to %d%% THRESHOLDTEMP", THRESHOLDTEMP);
+    return true;
+}
+
+
+
+bool cmd_enable_fps_new(int appid) {
+ 
+    if(done_appid == appid){
+       // etaHEN_log("FPS already enabled for %x", appid);
+        return true;
+  	}
+    
+    etaHEN_log("Enabling fps for appid %d", appid);
+
+    sleep(5);
+
+    SuspendApp(appid);
+    char buz[100] = { 0 };
+    if (sceKernelMprotect(&buz[0], 100, 0x7) == 0) {
+        if (pause_resume_kstuff()) {
+            etaHEN_log("Paused kstuff...");
+            touch_file("/system_tmp/kstuff_paused");
+        }
+    }
+
+    int pid = get_game_pid();
+    if (pid < 0) {
+        pause_resume_kstuff();
+        notify(true, "Failed to get game pid");
+        return false;
+    }
+
+    if (!Inject_Toolbox(pid, fps_elf_start)) {
+        pause_resume_kstuff();
+        ForceKillProc(pid);
+        notify(true, "Failed to inject fps");
+        return false;
+    }
+
+    pause_resume_kstuff();
+
+    sleep(1);
+    ResumeApp(pid);
+
+    done_appid = appid;
+
+    return true;
+}
+
+
 bool cmd_enable_fps(int appid) {
    
     if(done_appid == appid){
        // etaHEN_log("FPS already enabled for %x", appid);
         return true;
-	}
+	   }
 
     SuspendApp(appid);
 
@@ -878,7 +996,7 @@ bool cmd_enable_toolbox(){
       sleep(global_conf.seconds);
     }
 
-    notify(true, "Loading the etaHEN ToolBox...");
+    //notify(true, "Loading the etaHEN ToolBox...");
 
     int pid = get_shellui_pid();
     if (pid < 0) {
@@ -1180,6 +1298,44 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
     reply(sender_app, true);
     break;
   }
+  case BREW_LAUNCH_DUMPER:{
+#if 1
+    if (elfldr_spawn("/", STDOUT_FILENO, dumper_elf_start, "Dumper") < 0) {
+        notify(true, "Dumper is starting\nPlease wait...");
+    }
+#endif
+    reply(sender_app, false);
+    break;
+  }
+    case BREW_ADJUST_FAN_SPEED: {
+    int speed = json_getInteger(json_getProperty(my_json, "speed"));
+    int enabled = json_getInteger(json_getProperty(my_json, "enabled"));
+    etaHEN_log("Adjusting Fan Speed to: %d", speed);
+    if (speed < 0 || speed > 100) {
+      notify(true, "Invalid fan speed: %d. Must be between 0 and 100.", speed);
+      reply(sender_app, true);
+      break;
+    }
+
+    global_conf.enable_fan_speed = enabled;
+
+    if (!enabled) {
+      notify(true, "Fan speed adjustment is disabled.");
+      set_fan_threshold(77);
+      reply(sender_app, false);
+      break;
+    }
+
+    if (set_fan_threshold(speed)) {
+      notify(true, "Fan threshold adjusted to %i°C.", speed);
+      global_conf.fan_threshold = speed;
+      reply(sender_app, false);
+    } else {
+      notify(true, "Failed to adjust fan speed.");
+      reply(sender_app, true);
+    }
+    break;
+  }
   case BREW_KILL_DAEMON:{
     is_handler_enabled = false;
     exit(1337);
@@ -1201,7 +1357,7 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
   }
   case BREW_RELOAD_SETTINGS: {
     LoadSettings();
- //   notify(true, "Reloaded Settings");
+    notify(true, "Reloaded Settings");
     reply(sender_app, false);
     break;
   }
@@ -1214,8 +1370,8 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
       break;
 	}
    // kernel_set_ucred_authid(getpid(), 0x4801000000000013L);
-	change_permissions_recursive(path);
-	reply(sender_app, false);
+	  change_permissions_recursive(path);
+	  reply(sender_app, false);
     break;
   }
   default:

@@ -1,5 +1,6 @@
 extern "C"{
 #include "../include/proc.h"
+#include <ps5/klog.h>
 }
 struct proc* find_proc_by_name(const char* proc_name)
 {
@@ -92,21 +93,24 @@ void list_proc_modules(struct proc* proc)
 {
     size_t num_handles = 0;
     syscall(SYS_dl_get_list, proc->pid, NULL, 0, &num_handles);
+    klog_printf("Number of modules: %zu\n", num_handles);
     
     if (num_handles)
     {
         uintptr_t* handles = (uintptr_t*) calloc(num_handles, sizeof(uintptr_t));
+        klog_printf("Allocated handles array at %p\n", handles);
         syscall(SYS_dl_get_list, proc->pid, handles, num_handles, &num_handles);
-
+        klog_printf("Retrieved module handles for PID %d\n", proc->pid);
         for (int i = 0; i < num_handles; ++i)
         {
             module_info_t mod_info;
             bzero(&mod_info, sizeof(mod_info));
 
+            klog_printf("Getting info for handle %p\n", (void*)handles[i]);
             syscall(SYS_dl_get_info_2, proc->pid, 1, handles[i], &mod_info);
 
-            printf("%s - ", mod_info.filename);
-            printf("%#02lx\n", mod_info.init);
+            klog_printf("%s - ", mod_info.filename);
+            klog_printf("%#02lx\n", mod_info.init);
         }
         
         free(handles);

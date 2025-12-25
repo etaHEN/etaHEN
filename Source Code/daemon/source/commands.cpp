@@ -381,6 +381,7 @@ bool is_whitelisted_app(const std::string &tid) {
       "NPXS39041", 
       "DUMP00000",
       "PKGI13337",
+      "PKGI12345",
       "TOOL00001",
   };
   
@@ -553,6 +554,10 @@ bool Open_Utility_Elf(const char *path, uint8_t **buffer) {
   return true;
 }
 bool cmd_enable_fps(int appid);
+void LoadSettings();
+extern bool is_800;
+bool set_fan_threshold(int THRESHOLDTEMP);
+bool cmd_enable_fps_new(int appid);
 void *fifo_and_dumper_thread(void *args) noexcept {
   char *json_str = nullptr;
   constexpr uint32_t MAX_TOKENS = 256;
@@ -596,15 +601,25 @@ void *fifo_and_dumper_thread(void *args) noexcept {
       }
 
     pthread_mutex_lock(&jb_lock);
+
+    if(global_conf.enable_fan_speed)
+       set_fan_threshold(global_conf.fan_threshold);
+
     int bappid;
     if (!Get_Running_App_TID(tid, bappid)) {
       pthread_mutex_unlock(&jb_lock);
       continue;
     }
-#if 0
-    if(tid.rfind("CUSA") != std::string::npos || tid.rfind("SCUS") != std::string::npos)
-         cmd_enable_fps(bappid);
-#endif
+
+
+    if( if_exists("/system_tmp/fps_enabled") && (tid.rfind("CUSA") != std::string::npos || tid.rfind("SCUS") != std::string::npos)){
+        // cmd_enable_fps(bappid);
+        if(is_800)
+          cmd_enable_fps_new(bappid);
+        else
+          cmd_enable_fps(bappid);
+    }
+
     if (is_dumper_enabled) {
       if (strstr(tid.c_str(), "ITEM00001") != 0) {
         pthread_mutex_unlock(&jb_lock);
@@ -719,7 +734,7 @@ void *fifo_and_dumper_thread(void *args) noexcept {
           notify(true, "App (PID %i) has been granted a jailbreak", reserved_value);
 
       spawned->jailbreak(true);
-	  spawned.release();
+	    spawned.release();
     //  jailbreak_proc(reserved_value);
       unlink(sandbox_dir.c_str());
     }

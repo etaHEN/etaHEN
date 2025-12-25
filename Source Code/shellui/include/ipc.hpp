@@ -38,6 +38,8 @@ along with this program; see the file COPYING. If not, see
 #include <unistd.h>
 #include <vector>
 #include <ps5/klog.h>
+#include <iostream>
+#include <fstream>
 
 enum Cheat_Actions {
   DOWNLOAD_CHEATS = 0,
@@ -112,7 +114,7 @@ public:
     // erase the old message
     bzero(msg.msg, sizeof(msg.msg));
 
-    int timeout_ms = 10 * 1000;
+    int timeout_ms = 25 * 1000;
     // Set receive timeout
     struct timeval tv;
     tv.tv_sec = timeout_ms / 1000;
@@ -124,6 +126,7 @@ public:
         return -1; // Error setting timeout
     }
 
+    shellui_log("Waiting for daemon response...");
     int ret = recv(socket_fd, reinterpret_cast<void*>(&msg), sizeof(msg), MSG_NOSIGNAL);
     if (ret < 0) {
       shellui_log("recv failed with: 0X%X", ret);
@@ -478,7 +481,7 @@ public:
     return true;
   }
 
-  bool Cheats_Action(Cheat_Actions act) {
+  bool Cheats_Action(Cheat_Actions act, int repo) {
     DaemonCommands cmd;
     if (!util_daemon) {
       shellui_log("This IPC command is NOT in the main daemon");
@@ -497,8 +500,24 @@ public:
     
     }
     std::string ipc_msg;
-    if (!IPCSendCommand(cmd, ipc_msg)) {
+    std::string json = "{\"repo\": " + std::to_string(repo) + "}";
+    if (!IPCSendCommand(cmd, ipc_msg, json)) {
       return false;
+    }
+    return true;
+  }
+
+  bool Set_Fan_Threshold(int temp, bool enabled) {
+    if (util_daemon) {
+        shellui_log("This IPC command is NOT in the util daemon");
+        return false;
+    }
+    std::string ipc_msg;
+    //and enabled
+    std::string json = "{\"speed\": " + std::to_string(temp) + ", \"enabled\": " + std::to_string(enabled) + "}";
+    if (!IPCSendCommand(BREW_ADJUST_FAN_SPEED, ipc_msg, json)) {
+        shellui_log("Failed to adjust fan speed");
+        return false;
     }
     return true;
   }
@@ -520,6 +539,73 @@ public:
 
     return true;
 }
+void Launch_Dumper() {
+    if (util_daemon) {
+        shellui_log("This IPC command is in the main daemon");
+        return;
+    }
+    std::string ipc_msg;
+    if (!IPCSendCommand(BREW_LAUNCH_DUMPER, ipc_msg)) {
+        shellui_log("Failed to launch dumper");
+    }
+  }
+
+  static void generate_default_games_xml(std::string &xml_buffer,  bool game_shortcut_activated) {
+  std::string list_id = game_shortcut_activated ? "id_debug_settings" : "id_ps5_backups";
+
+  xml_buffer =  "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n"
+      "<system_settings version=\"1.0\" plugin=\"debug_settings_plugin\">\n"
+      "\n";
+
+  xml_buffer += "<setting_list id=\"" + list_id + "\" title=\"(Beta) PS5 webMAN Games (ERROR)\">\n";
+  xml_buffer += "</setting_list>\n</system_settings> ";
+}
+
+bool GetGamesList(bool cheats_activated_shortcut, std::string &games_list) {
+    if (!util_daemon) {
+        shellui_log("This IPC command is in the util daemon");
+        generate_default_games_xml(games_list, cheats_activated_shortcut);
+        return false;
+    }
+
+    std::string json = "{\"shortcut\": " + std::to_string(cheats_activated_shortcut) + "}";
+    if (!IPCSendCommand(BREW_UTIL_GET_GAMES_LIST, games_list, json)) {
+        shellui_log("Failed to get games list");
+        generate_default_games_xml(games_list, cheats_activated_shortcut);
+        return false;
+    }
+
+
+        std::ifstream file("/user/data/etaHEN/games_list.xml");
+        if (file) {
+            std::string content((std::istreambuf_iterator<char>(file)),
+                                 std::istreambuf_iterator<char>());
+            games_list = content;
+            file.close();
+            return true;
+        } else {
+            shellui_log("Failed to open games list file: %s", games_list.c_str());
+            return false;
+        }
+    
+
+    shellui_log("Games list: %s", games_list.c_str());
+    return true;
+  }
+
+  bool Launch_Game_By_ID(const std::string& button_id) {
+      if (!util_daemon) {
+          shellui_log("This IPC command is in the util daemon");
+          return false;
+      }
+      std::string ipc_msg;
+      std::string json = "{\"button_id\": \"" + button_id + "\"}";
+      if (!IPCSendCommand(BREW_UTIL_LAUNCH_GAME_BY_BUTTON_ID, ipc_msg, json)) {
+          shellui_log("Failed to launch game by button id: %s", button_id.c_str());
+          return false;
+      }
+      return true;
+  }
 }; // namespace IPC
 
 #endif // IPC_HEADER_H

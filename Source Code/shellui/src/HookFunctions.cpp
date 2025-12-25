@@ -35,6 +35,8 @@ along with this program; see the file COPYING. If not, see
 extern "C"{
 #include <ps5/kernel.h>
 }
+
+extern bool is_6xx, is_3xx;
 /* ================================= ORIG HOOKED MONO FUNCS ============================================= */
 int (*oOnPress)(MonoObject* Instance, MonoObject* element, MonoObject* e) = nullptr;
 int (*oOnPreCreate)(MonoObject* Instance, MonoObject* element) = nullptr;
@@ -543,6 +545,16 @@ void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user)
 
 }
 
+void* kstuff_pause_thread(void* arg){
+    sleep(2);
+    sleep(global_conf.pause_kstuff_on_open_secs);
+
+    if(!if_exists("/user/data/etaHEN/no_kstuff") && !if_exists("/usb0/etaHEN/no_kstuff")){
+        pause_resume_kstuff(BOTH_PAUSED, true);
+    }
+    return nullptr;
+}
+
 extern "C" int sceKernelGetSocSensorTemperature(int numb, int *temp);
 
 extern "C" int sceNetGetIfList(SceNetIfName ifName_num, SceNetIfList* ifListArray, int n);
@@ -940,7 +952,6 @@ void* switch_to_lite(void*) {
     main_ipc.KillDaemon();
 
     notify("Lite mode is active!");
-    pause_resume_kstuff(NOT_PAUSED, false);
     pthread_exit(nullptr);
 	return nullptr;
 
@@ -1020,10 +1031,10 @@ void* download_cheats_thr(void*){
         return nullptr;
     }
     cheat_action_in_progress = true;
-    notify("Preparing to download the cheats repo...");
+    notify("Preparing to download the %s cheats repo...", global_conf.selected_cheats_repo == CHEATS_REPO_ETAHEN ? "etaHEN PS5" : "GoldHEN PS4");
     IPC_Client& util_ipc = IPC_Client::getInstance(true);
     // daemon shows notification when done
-    util_ipc.Cheats_Action(DOWNLOAD_CHEATS);
+    util_ipc.Cheats_Action(DOWNLOAD_CHEATS, global_conf.selected_cheats_repo);
     
     cheat_action_in_progress = false;
     pthread_exit(nullptr);
@@ -1038,7 +1049,7 @@ void* reload_cheats_thr(void*){
     }
     cheat_action_in_progress = true;
     IPC_Client& util_ipc = IPC_Client::getInstance(true);
-    if (util_ipc.Cheats_Action(RELOAD_CHEATS)) 
+    if (util_ipc.Cheats_Action(RELOAD_CHEATS, 0)) 
        notify("The Cheats have been Cache and cheats list has been successfully reloaded");
 
     cheat_action_in_progress = false;
@@ -1079,6 +1090,7 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
     bool& DPI_v2 = global_conf.DPI_v2;
     int& kstuff_pause_opt = global_conf.kstuff_pause_opt;
     bool& dis_tids = global_conf.display_tids;
+    cheats_repo_source& selected_cheats_repo = global_conf.selected_cheats_repo;
 
     // Define the array of IDs to exclude (you can put this at the top of your function or as a static/global)
     const std::vector<std::string> excludedIds = {
@@ -1104,7 +1116,7 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
     std::string value = GetPropertyValue(element, "Value");
     std::string title = GetPropertyValue(element, "Title");
 
-    bool is_game = (id.rfind("id_game_") != std::string::npos);
+    bool is_game = (id.rfind("id_etahen_game_loader_") != std::string::npos);
     bool is_cust_pkg = (id.rfind("id_pkg_") != std::string::npos);
 
     if (id.rfind("id_cheat_") != std::string::npos && !is_current_game_open) {
@@ -1188,9 +1200,12 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
 		}
         if (!atoi(value.c_str())) {
 			RemoveGameWidget(REMOVE_FPS_OVERLAY);
+            unlink("/system_tmp/fps_enabled");
+            
         }
         else {
 			CreateGameWidget(CREATE_FPS_OVERLAY);
+            touch_file("/system_tmp/fps_enabled");
         }
 
         global_conf.overlay_fps = !global_conf.overlay_fps;
@@ -1310,10 +1325,19 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
             CreateGameWidget(CREATE_IP_OVERLAY);
 		}
     }
+    else if (id == "id_enable_kstuff_on_close"){
+        global_conf.enable_kstuff_on_close = atoi(value.c_str());
+    }
+    else if (id == "id_pause_kstuff_on_open"){
+        global_conf.pause_kstuff_on_open = atoi(value.c_str());
+    }
+    else if (id == "id_pause_kstuff_on_open_secs") {
+        global_conf.pause_kstuff_on_open_secs = atol(value.c_str());
+    }
     else if (id == "id_kstuff_autoload") {
-        if(atoi(value.c_str()) == if_exists("/user/data/etaHEN/no_kstuff")) {
-			return oOnPress(Instance, element, e);
-		}
+       // if(atoi(value.c_str()) == if_exists("/user/data/etaHEN/no_kstuff")) {
+		//	return oOnPress(Instance, element, e);
+		//}
         if(atol(value.c_str())){
 			unlink("/user/data/etaHEN/no_kstuff");
             notify("Kstuff will be loaded on next boot");
@@ -1341,11 +1365,16 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
             {
                 if (plugin.id == id)
                 {
+                    int pid = -1;
+                    if(plugin.tid.rfind(".elf") != std::string::npos && (pid = sceSystemServiceGetAppId(plugin.tid.c_str())) > 0){
+                        IPC_Client::getInstance(false).ForceKillPID(pid);
+                        notify("killed payload %s", plugin.tid.c_str());
+                        break;
+                    }
                     char pbuf[256];
                     snprintf(pbuf, sizeof(pbuf), "/system_tmp/%s.PID", plugin.tid.c_str());
 
                     int f = open(pbuf, O_RDONLY);
-                    int pid = -1;
                     if (f >= 0)
                     {
                         char t[32];
@@ -1380,6 +1409,7 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
                         unlink(pbuf);
 
                         notify("%s killed", plugin.tid.c_str());
+                        break;
                     }
                     else if (pid <= 0 && atol(value.c_str()) == 1)
                     {
@@ -1402,8 +1432,8 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
                 shellui_log("[Clicked %s] %s path: %s", selected_pkgs.id.c_str(), selected_pkgs.name.c_str(), selected_pkgs.shellui_path.c_str());
 #endif
                 std::string dl_url;
-                if (0)
-                    dl_url = "http:///192.168.123.116:1304" + selected_pkgs.shellui_path;
+                if (is_6xx)
+                    dl_url = "http://127.0.0.1:12800" + selected_pkgs.path;
                 else
                     dl_url = (selected_pkgs.path.rfind("/data") != std::string::npos) ? selected_pkgs.shellui_path : selected_pkgs.path;
 
@@ -1422,7 +1452,7 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
 				shellui_log("Installing package from: %s", metainfo.uri);
                 int num = sceAppInstUtilInstallByPackage(&metainfo, &pkginfo, &playgoinfo);
                 if (num != 0) {
-					notify("Failed to install %s\nError: 0x%X", selected_pkgs.name.c_str(), num);
+					notify("Failed to install %s\nError: 0x%X\nis DPIv2 enabled???", selected_pkgs.name.c_str(), num);
                 }
                 else
                 {
@@ -1432,21 +1462,9 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
         }
     }
     else if (is_game) {
-        if (games_list.empty()){
-            return oOnPress(Instance, element, e);
-        }
-        for (auto game : games_list) {
-            if (game.id == id) {
-                #if SHELL_DEBUG==1
-                shellui_log("[Clicked %s] TID: %s title: %s version: %s path: %s", game.id.c_str(), game.tid.c_str(), game.title.c_str(), game.version.c_str(), game.path.c_str());
-                #endif
-                notify("Launching %s (%s)\nPath: %s", game.title.c_str(), game.tid.c_str(), game.path.c_str());
-                //const char *path, const char* title_id, const char* title
-                int res = Launch_FG_Game(game.path.c_str(), game.tid.c_str(), game.title.c_str());
-                if (res < 0 && res != SCE_LNC_UTIL_ERROR_ALREADY_RUNNING_KILL_NEEDED && res != SCE_LNC_UTIL_ERROR_ALREADY_RUNNING && res != SCE_LNC_UTIL_ERROR_ALREADY_RUNNING_SUSPEND_NEEDED) {
-                    notify("Failed to launch %s (%s)\nError: 0x%X", game.title.c_str(), game.tid.c_str(), res);
-                }
-            }
+        if(IPC_Client::getInstance(true).Launch_Game_By_ID(id) && global_conf.pause_kstuff_on_open){
+            pthread_t thread;
+            pthread_create(&thread, nullptr, kstuff_pause_thread, nullptr);
         }
     }
     else if (id.rfind("id_auto_plugin") != std::string::npos) {
@@ -1545,6 +1563,15 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
         }
         dis_tids = !dis_tids;
         ReloadRNPSApp("NPXS40002");
+    }
+    else if (id == "id_enable_fan_speed") {
+        if (atol(value.c_str()) == global_conf.enable_fan_speed) {
+            shellui_log("Fan speed control already %s", global_conf.enable_fan_speed ? "Enabled" : "Disabled");
+            return oOnPress(Instance, element, e);
+        }
+        global_conf.enable_fan_speed = !global_conf.enable_fan_speed;
+        IPC_Client::getInstance(false).Set_Fan_Threshold(global_conf.fan_threshold, global_conf.enable_fan_speed);
+
     }
     else if (id == "id_lm_test")
     {
@@ -1667,6 +1694,17 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
         Auto_ItemzFlow = false;
         shellui_log("Start option: %d", StartOption);
     }
+    else if (id == "id_selected_cheats_repo") {
+        selected_cheats_repo = static_cast<cheats_repo_source>(atoi(value.c_str()));
+        shellui_log("Selected cheats repo: %s", selected_cheats_repo == CHEATS_REPO_ETAHEN ? "etaHEN PS5" : "GoldHEN PS4");
+    }
+    else if (id == "id_lite_mode") {
+        if (atoi(value.c_str()) == lite_mode) {
+            shellui_log("Lite Mode already %s", lite_mode ? "Enabled" : "Disabled");
+            return oOnPress(Instance, element, e);
+        }
+        lite_mode = !lite_mode;
+    }
     else if (id == "id_trial_soft") {
 	      	trial_expire = atoi(value.c_str());
     }
@@ -1714,6 +1752,16 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
     }
     else if (id == "id_rest_1") {
         delay_secs = atol(value.c_str());
+    }
+    else if (id == "id_fan_speed") {
+        int &fan_speed = global_conf.fan_threshold;
+        fan_speed = atoi(value.c_str());
+        if(!global_conf.enable_fan_speed){
+            notify("Manual Fan speed threshold is not enabled");
+            return oOnPress(Instance, element, e);
+        }
+        shellui_log("Setting fan speed to %d%%", fan_speed);
+        IPC_Client::getInstance(false).Set_Fan_Threshold(fan_speed, global_conf.enable_fan_speed);
     }
     else if (id == "id_rest_2") {
         if (atoi(value.c_str()) == util_rest_kill) {
@@ -1938,7 +1986,6 @@ int OnPress_Hook(MonoObject* Instance, MonoObject* element, MonoObject* e)
                     notify("%s killed", plugin.tid.c_str());
                 }
             }
-            pause_resume_kstuff(BOTH_PAUSED, false);
             if(!Try_connect_to_host(9021) && !IPC_Client::getInstance(true).Launch_Elfldr()){
                 notify("Failed to Launch Johns Elfldr, failed to enter lite mode");
                 return oOnPress(Instance, element, e);
@@ -2094,7 +2141,8 @@ uint64_t GetManifestResourceStream_Hook(uint64_t inst, MonoString* FileName) {
            // shellui_log("games found");
         }
        
-        generate_games_xml(new_xml_string, game_shortcut_activated);
+        //generate_games_xml(new_xml_string, game_shortcut_activated);
+        IPC_Client::getInstance(true).GetGamesList(game_shortcut_activated, new_xml_string);
         game_shortcut_activated = false;
     }
 	else if (is_tk_menu) {
@@ -2299,8 +2347,20 @@ int OnPreCreate_Hook(MonoObject* Instance, MonoObject* element) {
     else if (id == "id_kstuff_autoload") {
 		s_MonoText = mono_string_new(Root_Domain, !if_exists("/user/data/etaHEN/no_kstuff") ? "1" : "0");
     }
+    else if (id == "id_enable_kstuff_on_close") {
+        s_MonoText = mono_string_new(Root_Domain, global_conf.enable_kstuff_on_close ? "1" : "0");
+    }
+    else if (id == "id_pause_kstuff_on_open"){
+        s_MonoText = mono_string_new(Root_Domain, global_conf.pause_kstuff_on_open ? "1" : "0");
+    }
+    else if (id == "id_pause_kstuff_on_open_secs"){
+        s_MonoText = mono_string_new(Root_Domain, std::to_string(global_conf.pause_kstuff_on_open_secs).c_str());
+    }
     else if (id == "id_disp_titleids"){
         s_MonoText = mono_string_new(Root_Domain, global_conf.display_tids ? "1" : "0");
+    }
+    else if (id == "id_enable_fan_speed"){
+        s_MonoText = mono_string_new(Root_Domain, global_conf.enable_fan_speed ? "1" : "0");
     }
     else if (id == "id_ftp_service") {
         s_MonoText = mono_string_new(Root_Domain, FTP ? "1" : "0");
@@ -2313,6 +2373,9 @@ int OnPreCreate_Hook(MonoObject* Instance, MonoObject* element) {
     }
     else if (id == "id_DPI_v2_service") {
         s_MonoText = mono_string_new(Root_Domain, DPI_v2 ?  "1" : "0");
+    }
+    else if (id == "id_selected_cheats_repo") {
+        s_MonoText = mono_string_new(Root_Domain, global_conf.selected_cheats_repo ? "1" : "0");
     }
     else if (id == "id_start_opt") {
         int opt = global_conf.start_option;
@@ -2338,6 +2401,9 @@ int OnPreCreate_Hook(MonoObject* Instance, MonoObject* element) {
 	  }
     else if (id == "id_rest_1") {
          s_MonoText = mono_string_new(Root_Domain, std::to_string(global_conf.rest_delay_seconds).c_str());
+    }
+    else if (id == "id_fan_speed") {
+        s_MonoText = mono_string_new(Root_Domain, std::to_string(global_conf.fan_threshold).c_str());
     }
     else if (id == "id_rest_2") {
         s_MonoText = mono_string_new(Root_Domain, global_conf.util_rest_kill ? "1" : "0");
@@ -2460,7 +2526,21 @@ bool handle_uri_boot_common(MonoString* uri, int opt, MonoString* titleIdForBoot
       cheats_shortcut_activated_not_open = true;
       return true;
     }
-   
+    else if (uri_string == "etaHEN?Dump") {
+#if SHELL_DEBUG==1
+        shellui_log("Dump URI detected");
+#endif
+        IPC_Client::getInstance(false).Launch_Dumper();
+        return true; // Signal to redirect
+    }
+    else if (uri_string == "etaHEN?DL_UPDATE") {
+#if SHELL_DEBUG==1
+        shellui_log("DL_UPDATE URI detected");
+#endif
+        
+        return true; // Signal to redirect
+    }
+
     return false; // No redirect needed
   }
   
@@ -2470,6 +2550,11 @@ bool handle_uri_boot_common(MonoString* uri, int opt, MonoString* titleIdForBoot
             // In lite mode, we don't want to handle any shortcuts
             notify("Lite mode is enabled, shortcuts are disabled");
             return boot_orig(uri, opt, titleIdForBootAction);
+        }
+
+        std::string uri_string = Mono_to_String(uri);
+        if(uri_string == "etaHEN?Dump") {
+          return boot_orig(mono_string_new(Root_Domain, "pshomeui:navigateToHome?bootCondition=psButton"),  opt, titleIdForBootAction);
         }
       // Redirect to debug settings
       return boot_orig(mono_string_new(Root_Domain, "pssettings:play?mode=settings&function=debug_settings"), opt, titleIdForBootAction);
@@ -2489,6 +2574,12 @@ bool handle_uri_boot_common(MonoString* uri, int opt, MonoString* titleIdForBoot
         notify("Lite mode is enabled, shortcuts are disabled");
         return boot_orig_2(uri, opt);
       }
+
+      std::string uri_string = Mono_to_String(uri);
+      if(uri_string == "etaHEN?Dump") {
+        return boot_orig_2(mono_string_new(Root_Domain, "pshomeui:navigateToHome?bootCondition=psButton"),  opt);
+      }
+
       return boot_orig_2(mono_string_new(Root_Domain, "pssettings:play?function=debug_settings"),  opt);
     }
     
@@ -2850,11 +2941,26 @@ bool app_launched = false;
 int LaunchApp(MonoString* titleId, uint64_t* args, int argsSize, LaunchAppParam *param){
 #if 1
    if(!if_exists("/system_tmp/patch_plugin")) {
-     #if SHELL_DEBUG == 1
-     shellui_log("patch plugin not running .. returning with orig");
-     #endif
-	 app_launched = true;
-     return LaunchApp_orig(titleId, args, argsSize, param);
+      #if SHELL_DEBUG == 1
+      shellui_log("patch plugin not running .. returning with orig");
+      #endif
+	  unsigned int ret = LaunchApp_orig(titleId, args, argsSize, param);
+      if (ret < 0) {
+         #if SHELL_DEBUG == 1
+         notify("LaunchApp failed with error code: %d", ret);
+         #endif
+         return ret;
+      }
+
+      app_launched = true;
+      if(global_conf.pause_kstuff_on_open && Mono_to_String(titleId) != "ITEM00001" && Mono_to_String(titleId).rfind("NPXS") == std::string::npos){
+         pthread_t thread;
+         shellui_log("Pausing Kstuff on app launch for %s in %d seconds", mono_string_to_utf8(titleId), global_conf.pause_kstuff_on_open_secs);
+         pthread_create(&thread, nullptr, kstuff_pause_thread, nullptr);
+      }
+
+      return ret;
+
    }
 #endif
 #if SHELL_DEBUG == 1
@@ -2868,6 +2974,13 @@ int LaunchApp(MonoString* titleId, uint64_t* args, int argsSize, LaunchAppParam 
     notify("LaunchApp failed with error code: %d", ret);
     #endif
     return ret;
+  }
+
+  app_launched = true;
+  if(global_conf.pause_kstuff_on_open && Mono_to_String(titleId) != "ITEM00001" && Mono_to_String(titleId).rfind("NPXS") == std::string::npos){
+    pthread_t thread;
+     shellui_log("Pausing Kstuff on app launch for %s in %d seconds", mono_string_to_utf8(titleId), global_conf.pause_kstuff_on_open_secs);
+    pthread_create(&thread, nullptr, kstuff_pause_thread, nullptr);
   }
 
  #if SHELL_DEBUG == 1
@@ -2988,15 +3101,21 @@ void createJson_hook(MonoObject* inst, MonoObject* array, MonoString* id, MonoSt
         shellui_log("Updated menu titleId: %s", current_menu_tid.c_str());
 #endif
     }
-#if 0
-    if(id_str == "MENU_ID_SAVE_DATA_MANAGEMENT_PS4_MANUAL"){
-       createJson(inst, array, mono_string_new(Root_Domain, "MENU_ID_CUST_UPDATES"), mono_string_new(Root_Domain, "★ Game Updates"), mono_string_new(Root_Domain, "etaHEN?Pick_Update"), actionId, nullptr, subMenu, enable);
+#if 1
+    if(id_str == "MENU_ID_SAVE_DATA_MANAGEMENT_PS4_MANUAL" || id_str == "MENU_ID_SAVE_DATA_MANAGEMENT_PS5_MANUAL" || (id_str == "MENU_ID_UPDATE_HISTORY" && 0)){
+       createJson(inst, array, mono_string_new(Root_Domain, "MENU_ID_CUST_UPDATES"), mono_string_new(Root_Domain, "★ (Beta) Dump Game/App"), mono_string_new(Root_Domain, "etaHEN?Dump"), actionId, nullptr, subMenu, enable);
        return;
     }
 #endif
     if(id_str == "MENU_ID_CHECK_PATCH"){  
       //createJson_hook: 8815fec90 id: MENU_ID_CHECK_PATCH, label: , actionUrl: pspatchcheck:check-for-update?titleid=CUSA01127, actionId: , messageId: msgid_check_update
         createJson(inst, array, mono_string_new(Root_Domain, "MENU_ID_CHEATS"), mono_string_new(Root_Domain, "★ etaHEN Cheats"), mono_string_new(Root_Domain, "etaHEN?Cheats_not_open"), actionId, nullptr, subMenu, enable);
+        return;
+    }
+
+    if(id_str == "MENU_ID_INTELLECTUAL_PROPERTY_NOTICES"){
+        std::string uri = "psappinst:pat-uninstall?titleid=" + current_menu_tid;
+        createJson(inst, array, mono_string_new(Root_Domain, "MENU_ID_REMOVE_UPDATE"), mono_string_new(Root_Domain, "★ Delete"), mono_string_new(Root_Domain, uri.c_str()), actionId, nullptr, subMenu, enable);
         return;
     }
 
@@ -3022,5 +3141,6 @@ void Terminate() {
         IPC_Client& ipc = IPC_Client::getInstance(true);
         ipc.SendRestModeAction();
     }
+    pause_resume_kstuff(NOT_PAUSED, true);
     oTerminate();
 }

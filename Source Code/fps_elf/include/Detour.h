@@ -17,7 +17,7 @@ along with this program; see the file COPYING. If not, see
 #pragma once
 extern "C" {
 #include "ucred.h"
-#include "external_symbols.hpp"
+#include "defs.h"
 #include "../lib/libmprotect.h"
 #include <cstdint>
 #include <sys/mman.h>

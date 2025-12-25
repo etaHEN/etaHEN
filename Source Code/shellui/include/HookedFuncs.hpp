@@ -194,6 +194,11 @@ enum Cheats_Shortcut{
     OVERLAY_POS_BOTTOM_RIGHT
  };
 
+ enum cheats_repo_source{
+    CHEATS_REPO_ETAHEN = 0,
+    CHEATS_REPO_GOLDHEN
+ };
+
 typedef struct etaHENSettings_t
 {
     bool FTP = true;
@@ -224,12 +229,17 @@ typedef struct etaHENSettings_t
     bool overlay_ip = false;
     bool overlay_kstuff = false;
     bool overlay_kstuff_active = false;
+    bool enable_kstuff_on_close = false;
+    bool pause_kstuff_on_open = false;
     bool all_cpu_usage = false;
     int start_option = 0;
     int trial_soft_expire_time = 0;
     int kit_panel_info = 0;
     int kstuff_pause_opt = NOT_PAUSED;
     uint64_t rest_delay_seconds = 0;
+    bool enable_fan_speed = false;
+    int fan_threshold = 77;
+    int pause_kstuff_on_open_secs = 0;
     
     // Shortcuts
     Cheats_Shortcut cheats_shortcut_opt = CHEATS_SC_OFF;
@@ -254,6 +264,7 @@ typedef struct etaHENSettings_t
 	float overlay_ip_y = 110.0f;
 
     overlay_positions overlay_pos = OVERLAY_POS_TOP_LEFT; //0=top left, 1=top right, 2=bottom left, 3=bottom right
+    cheats_repo_source selected_cheats_repo = CHEATS_REPO_ETAHEN;
 
 } etaHENSettings;
 

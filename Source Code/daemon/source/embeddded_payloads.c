@@ -26,5 +26,28 @@
 	"shellui_prx_size:\n"
     	".int    shellui_elf_end - shellui_elf_start\n"
 
+	".global fps_elf_start\n"
+	".type   fps_elf_start, @object\n"
+	".align  16\n"
+	"fps_elf_start:\n"
+    	".incbin \"assets/fps_elf.elf\"\n"
+	"fps_elf_end:\n"
+	    ".global fps_elf_size\n"
+	    ".type   fps_elf_size, @object\n"
+	    ".align  4\n"
+	"fps_elf_size:\n"
+    	".int    fps_elf_end - fps_elf_start\n"
+
+	".global dumper_elf_start\n"
+	".type   dumper_elf_start, @object\n"
+	".align  16\n"
+	"dumper_elf_start:\n"
+    	".incbin \"assets/ps5-app-dumper.elf\"\n"
+	"dumper_elf_end:\n"
+	    ".global dumper_elf_size\n"
+	    ".type   dumper_elf_size, @object\n"
+	    ".align  4\n"
+	"dumper_elf_size:\n"
+    	".int    dumper_elf_end - dumper_elf_start\n"
 
 );

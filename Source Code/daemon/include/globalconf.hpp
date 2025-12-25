@@ -36,11 +36,14 @@ struct daemon_settings {
   bool allow_data = true;
   bool DPIv2 = false;
   bool elf_loader = true;
+  bool enable_fan_speed = false;
   bool toolbox_auto_start = true;
   bool debug_app_jb_msg = false;
   bool auto_eject_disc = false;
+  bool overlay_fps = false;
   StartOpts start_opt = NONE;
   int seconds = 0; // seconds to wait before starting toolbox
+  int fan_threshold = 77; // default fan threshold
 };
 
 extern struct daemon_settings global_conf;

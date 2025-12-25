@@ -243,7 +243,7 @@ int32_t sceKernelSendNotificationRequest(int32_t device, OrbisNotificationReques
 
 bool IniliatizeHTTP(void);
 bool download_file(const char *url, const char *dst);
-bool check_for_new_commit();
+bool check_for_new_commit(int repo);
 bool extract_zip(const char *zip_path, const char *extract_dir);
 
 

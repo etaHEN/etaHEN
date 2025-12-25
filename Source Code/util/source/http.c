@@ -34,7 +34,8 @@ along with this program; see the file COPYING. If not, see
 #define MAX_CONCURRENT_REQUEST	(4)
 #define PRIVATE_CA_CERT_NUM		(0)
 #define COMMIT_HASH_FILE "/data/etaHEN/cheat_commit_hash.txt"
-#define GITHUB_API_URL "https://api.github.com/repos/etaHEN/PS5_Cheats/commits"
+#define ETAHEN_GITHUB_API_URL "https://api.github.com/repos/etaHEN/PS5_Cheats/commits"
+#define GOLDHEN_GITHUB_API_URL "https://api.github.com/repos/GoldHEN/GoldHEN_Cheat_Repository/commits"
 
 uint64_t sceKernelGetProcessTime(void);
 
@@ -94,12 +95,12 @@ static int progress_callback(void* clientp, curl_off_t dltotal, curl_off_t dlnow
             int percent = (int)(((float)dlnow / dltotal) * 100);
 
             snprintf(notifyMsg, sizeof(notifyMsg),
-                "Downloading the cheats repo:..\n%.1f/%.1f MB (%d%%)",
+                "Downloading..\n%.1f/%.1f MB (%d%%)",
                 dlnow_mb, dltotal_mb, percent);
         }
         else {
             snprintf(notifyMsg, sizeof(notifyMsg),
-                "Downloading the cheats repo...\n%.1f MB Downloaded",
+                "Downloading...\n%.1f MB Downloaded",
                 dlnow_mb);
         }
 
@@ -237,10 +238,12 @@ static char* download_json(const char* url) {
 
     // Initialize JSON data structure
     struct json_data json = {
-        .data = malloc(1024),
+        .data = malloc(0x1000),
         .size = 0,
-        .capacity = 1024
+        .capacity = 0x1000
     };
+
+    etaHEN_log("Downloading JSON data from %s", url);
 
     if (!json.data) {
         etaHEN_log("Failed to allocate initial memory for JSON data");
@@ -556,7 +559,7 @@ static bool write_commit_hash(const char* hash) {
 }
 
 // Main function to check for new commits
-bool check_for_new_commit() {
+bool check_for_new_commit(int repo) {
     char* json_data = NULL;
     char latest_commit[64] = {0};
     char stored_commit[64] = {0};
@@ -566,7 +569,7 @@ bool check_for_new_commit() {
     notify(true, "Checking for updates to the cheats repo...");
     
     // Download the latest commit information
-    json_data = download_json(GITHUB_API_URL);
+    json_data = download_json(repo ? GOLDHEN_GITHUB_API_URL : ETAHEN_GITHUB_API_URL);
     if (!json_data) {
         etaHEN_log("Failed to download commit information from GitHub API");
         notify(true, "Failed to check the cheats repo for updates\nCheck your Connection and try again");

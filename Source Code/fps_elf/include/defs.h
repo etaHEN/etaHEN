@@ -15,10 +15,10 @@ along with this program; see the file COPYING. If not, see
 <http://www.gnu.org/licenses/>.  */
 
 #pragma once
-#define PUBLIC_TEST 1
-#define PRE_RELEASE 0
-#define SHELL_DEBUG 1
-#define etaHEN_VERSION "2.4"
+#include <stdint.h>
+#include <stddef.h>
+
+extern "C" int sceKernelMprotect(void *addr, size_t len, int prot);
 
 #define libSceKernelHandle 0x2001
 #define KERNEL_DLSYM(handle, sym) \

@@ -82,6 +82,42 @@ void ReloadApp(MonoString *str){
      Orig_ReloadApp(str);
 }
 
+#define PLAYGOSCENARIOID_SIZE 3
+#define CONTENTID_SIZE 0x30
+#define LANGUAGE_SIZE 8
+
+typedef char playgo_scenario_id_t[PLAYGOSCENARIOID_SIZE];
+typedef char language_t[LANGUAGE_SIZE];
+typedef char content_id_t[CONTENTID_SIZE];
+
+typedef struct
+{
+    content_id_t content_id;
+    int content_type;
+    int content_platform;
+} SceAppInstallPkgInfo;
+
+typedef struct
+{
+    const char* uri;
+    const char* ex_uri;
+    const char* playgo_scenario_id;
+    const char* content_id;
+    const char* content_name;
+    const char* icon_url;
+} MetaInfo;
+
+#define NUM_LANGUAGES 30
+#define NUM_IDS 64
+
+typedef struct {
+    language_t languages[NUM_LANGUAGES];
+    playgo_scenario_id_t playgo_scenario_ids[NUM_IDS];
+    content_id_t content_ids[NUM_IDS];
+    long unknown[810];
+} PlayGoInfo;
+
+
 //int _AppInstUtilInstallByPackage(string uri, string ex_uri, string playgo_scenario_id, string content_id, string content_name, string icon_url, uint slot, bool is_playgo_enabled, ref AppInstUtilWrapper.SceAppInstallPkgInfo pkg_info, string[] languages, string[] playgo_scenario_ids, string[] content_ids);
 
 int (*Orig_AppInstUtilInstallByPackage)(MonoString* uri, MonoString* ex_uri, MonoString* playgo_scenario_id, MonoString* content_id, MonoString* content_name, MonoString* icon_url, uint32_t slot, bool is_playgo_enabled, MonoObject* pkg_info, MonoArray* languages, MonoArray* playgo_scenario_ids, MonoArray* content_ids) = nullptr;
@@ -149,6 +185,21 @@ Memory VRAM;
 Proc_Stats Stat_Data[3072];
 thread_usages gThread_Data[2];
 
+
+extern "C" int sceLncUtilKillAppWithReason(int appId, int reason);
+void pause_resume_kstuff(KstuffPauseStatus opt, bool notify_user);
+
+int KillAppWithReason_Hook(int appId, int reason)
+{
+   // shellui_log("KillAppWithReason_Hook called with appId: %d, reason: %d", appId, reason);
+    //notify("Killing app %d", appId);
+    if(global_conf.enable_kstuff_on_close)
+        pause_resume_kstuff(NOT_PAUSED, true);
+
+    int ret = sceLncUtilKillAppWithReason(appId, reason);
+    //shellui_log("KillAppWithReason_Hook returned: %d", ret);
+    return ret;
+}
 
 void Get_Page_Table_Stats(int vm, int type, int* Used, int* Free, int* Total)
 {
@@ -243,8 +294,94 @@ public:
     }
 };
 
-AtomicString fps_string;
+void* search_bytes(const void* haystack, size_t haystack_len,
+    const void* needle, size_t needle_len){
 
+    if (needle_len == 0 || needle_len > haystack_len) {
+        return NULL;
+
+    }
+
+    const unsigned char* h = (const unsigned char*)haystack;
+    const unsigned char* n = (const unsigned char*)needle;
+
+
+    for (size_t i = 0; i <= haystack_len - needle_len; i++) {
+        if (memcmp(&h[i], n, needle_len) == 0) {
+            return (void*)&h[i];
+
+        }
+    }
+
+    return NULL;
+
+}
+void ShellHexDump(const void* data, size_t size) {
+    const unsigned char* byteData = static_cast<const unsigned char*>(data);
+    char line[256];
+    
+    for (size_t i = 0; i < size; i += 16) {
+        int pos = 0;
+        
+        // Offset
+        pos += snprintf(line + pos, sizeof(line) - pos, "%08zx  ", i);
+        
+        // Hex bytes
+        for (size_t j = 0; j < 16; ++j) {
+            if (i + j < size) {
+                pos += snprintf(line + pos, sizeof(line) - pos, "%02x ", 
+                                byteData[i + j]);
+            } else {
+                pos += snprintf(line + pos, sizeof(line) - pos, "   ");
+            }
+        }
+        
+        pos += snprintf(line + pos, sizeof(line) - pos, " ");
+        
+        // ASCII representation
+        for (size_t j = 0; j < 16; ++j) {
+            if (i + j < size) {
+                unsigned char c = byteData[i + j];
+                pos += snprintf(line + pos, sizeof(line) - pos, "%c", 
+                                isprint(c) ? c : '.');
+            }
+        }
+        
+        shellui_log(line);
+    }
+}
+AtomicString fps_string;
+ssize_t(*read_orig)(int fd, void *buf, size_t count) = nullptr;
+ssize_t read_hook(int fd, void* buf, size_t count) {
+    ssize_t ret = read_orig(fd, buf, count);
+   // shellui_log("read_hook called: fd=%d, count=%zu, ret=%zd", fd, count, ret);
+    if (count == 65536) {
+        void* found = search_bytes(buf, 100, "FPS", 3);
+        if (found) {
+            const char* fps_ptr = (const char*)found;
+
+            // Skip "FPS" and any separators (: = space etc)
+            fps_ptr += 3; // Skip "FPS"
+            while (*fps_ptr && !isdigit(*fps_ptr)) {
+                fps_ptr++;
+            }
+
+            // Extract the number
+            std::string fps_value;
+            while (*fps_ptr && (isdigit(*fps_ptr) || *fps_ptr == '.')) {
+                fps_value += *fps_ptr;
+                fps_ptr++;
+            }
+
+            if (!fps_value.empty()) {
+                fps_string.store(fps_value);
+              //  shellui_log("Captured FPS: %s", fps_value.c_str());
+            }
+            return -1;
+        }
+    }
+    return ret;
+}
 
 int get_ip_address(char* ip_address);
 void OnRender_Hook(MonoObject* instance)
@@ -276,7 +413,7 @@ void OnRender_Hook(MonoObject* instance)
 
     if (!Do_Once)
     {
-#if 0
+#if 1
         fps_string.store("LOADING");
 #else
         fps_string.store("NOT SUPPORTED IN THIS BUILD");
@@ -420,6 +557,145 @@ void OnRender_Hook(MonoObject* instance)
 }
 
 
+
+int (*sceAppInstUtilInstallByPackage_orig)(MetaInfo* arg1, SceAppInstallPkgInfo* pkg_info, PlayGoInfo* arg2) = nullptr;
+void hex_dump(const char* label, const void* data, size_t size) {
+    const unsigned char* bytes = (const unsigned char*)data;
+    shellui_log("=== %s (size: %zu bytes) ===", label, size);
+
+    for (size_t i = 0; i < size; i += 16) {
+        char line[128];
+        int offset = 0;
+
+        // Print offset
+        offset += snprintf(line + offset, sizeof(line) - offset,
+            "%04zx: ", i);
+
+        // Print hex values
+        for (size_t j = 0; j < 16; j++) {
+            if (i + j < size) {
+                offset += snprintf(line + offset, sizeof(line) - offset,
+                    "%02x ", bytes[i + j]);
+            }
+            else {
+                offset += snprintf(line + offset, sizeof(line) - offset,
+                    "   ");
+            }
+        }
+
+        // Print ASCII representation
+        offset += snprintf(line + offset, sizeof(line) - offset, " |");
+        for (size_t j = 0; j < 16 && i + j < size; j++) {
+            unsigned char c = bytes[i + j];
+            offset += snprintf(line + offset, sizeof(line) - offset,
+                "%c", (c >= 32 && c <= 126) ? c : '.');
+        }
+        offset += snprintf(line + offset, sizeof(line) - offset, "|");
+
+        shellui_log("%s", line);
+    }
+}
+extern "C" int sceAppInstUtilInitialize();
+
+int sceAppInstUtilInstallByPackage_hook(MetaInfo* arg1,
+    SceAppInstallPkgInfo* pkg_info,
+    PlayGoInfo* arg2) {
+
+    shellui_log("========== sceAppInstUtilInstallByPackage_hook ==========");
+
+    sceAppInstUtilInitialize();
+
+    // Print MetaInfo
+    if (arg1) {
+        shellui_log("--- MetaInfo ---");
+        shellui_log("uri: %s", arg1->uri ? arg1->uri : "(null)");
+        shellui_log("ex_uri: %s", arg1->ex_uri ? arg1->ex_uri : "(null)");
+        shellui_log("playgo_scenario_id: %s",
+            arg1->playgo_scenario_id ? arg1->playgo_scenario_id : "(null)");
+        shellui_log("content_id: %s",
+            arg1->content_id ? arg1->content_id : "(null)");
+        shellui_log("content_name: %s",
+            arg1->content_name ? arg1->content_name : "(null)");
+        shellui_log("icon_url: %s",
+            arg1->icon_url ? arg1->icon_url : "(null)");
+    }
+    else {
+        shellui_log("MetaInfo: (null)");
+    }
+
+    // Print SceAppInstallPkgInfo
+    if (pkg_info) {
+        shellui_log("--- SceAppInstallPkgInfo ---");
+        shellui_log("content_id: %.*s", CONTENTID_SIZE, pkg_info->content_id);
+        shellui_log("content_type: %d", pkg_info->content_type);
+        shellui_log("content_platform: %d", pkg_info->content_platform);
+    }
+    else {
+        shellui_log("SceAppInstallPkgInfo: (null)");
+    }
+
+    // Print PlayGoInfo
+    if (arg2) {
+        shellui_log("--- PlayGoInfo ---");
+
+        // Print languages
+        shellui_log("Languages:");
+        for (int i = 0; i < NUM_LANGUAGES; i++) {
+            if (arg2->languages[i][0] != '\0') {
+                shellui_log("  [%d]: %.*s", i, LANGUAGE_SIZE,
+                    arg2->languages[i]);
+            }
+        }
+
+        // Print playgo_scenario_ids
+        shellui_log("PlayGo Scenario IDs:");
+        for (int i = 0; i < NUM_IDS; i++) {
+            if (arg2->playgo_scenario_ids[i][0] != '\0') {
+                shellui_log("  [%d]: %.*s", i, PLAYGOSCENARIOID_SIZE,
+                    arg2->playgo_scenario_ids[i]);
+            }
+        }
+
+        // Print content_ids
+        shellui_log("Content IDs:");
+        for (int i = 0; i < NUM_IDS; i++) {
+            if (arg2->content_ids[i][0] != '\0') {
+                shellui_log("  [%d]: %.*s", i, CONTENTID_SIZE,
+                    arg2->content_ids[i]);
+            }
+        }
+
+        // Hex dump unknown portion
+        hex_dump("PlayGoInfo::unknown", arg2->unknown,
+            sizeof(arg2->unknown));
+    }
+    else {
+        shellui_log("PlayGoInfo: (null)");
+    }
+
+    shellui_log("========== Calling Original Function ==========");
+    notify("Installing package from:\n%s",
+        arg1 ? (arg1->uri ? arg1->uri : "(null)") : "(null)");
+
+    int ret = sceAppInstUtilInstallByPackage_orig(arg1, pkg_info, arg2);
+
+    shellui_log("sceAppInstUtilInstallByPackage_hook returned: %d", ret);
+    notify("Installation finished with code: %d", ret);
+
+    return ret;
+}
+bool is_6xx = false, is_3xx = false;
+
+void* dialogue_thread(void* arg) {
+    while (true) {
+        sleep(1);
+        if(if_exists("/user/data/test.flag")){
+        
+           unlink("/user/data/test.flag");
+       }
+   }
+    return nullptr;
+}
 int main(int argc, char const *argv[]) {
   OrbisKernelSwVersion sw;
   char buz[100];
@@ -428,10 +704,15 @@ int main(int argc, char const *argv[]) {
   }
 
   static ssize_t(*read)(int fd, void* buf, size_t count) = nullptr;
+  static int (*sceAppInstUtilInstallByPackage)(MetaInfo * arg1, SceAppInstallPkgInfo * pkg_info, PlayGoInfo * arg2) = nullptr;
 
 
   pid_t pid = getpid();
   uintptr_t old_authid = set_ucred_to_debugger();
+
+
+  int appinstaller_handle = get_module_handle(pid, "libSceAppInstUtil.sprx");
+  KERNEL_DLSYM(appinstaller_handle, sceAppInstUtilInstallByPackage);
   
 
   int libkernelsys_handle = get_module_handle(pid, "libkernel_sys.sprx");
@@ -623,7 +904,8 @@ int main(int argc, char const *argv[]) {
   std::string term = base64_decode("VGVybWluYXRl"); // "Terminate"
 
   sceKernelGetProsperoSystemSwVersion(&sw);
-  bool is_3xx = (sw.version < 0x4000042);
+  is_3xx = (sw.version < 0x4000042);
+  is_6xx = (sw.version >= 0x6000000);
   shellui_log("System Software Version: %s is_3xx: %s", sw.version_str, is_3xx ? "Yes" : "No");
 
 #if 0
@@ -655,7 +937,7 @@ int main(int argc, char const *argv[]) {
     dec_ver += etaHEN_VERSION;
     std::string final_ver;
 #if PUBLIC_TEST == 1
-    final_ver = dec_ver + " -PUBLIC_TEST" + " (" + sw.version_str + " )";
+    final_ver = dec_ver + "-PUBLIC_TEST" + " (" + sw.version_str + " )";
 #elif PRE_RELEASE == 1
     final_ver = dec_ver + " PRE_RELEASE" + " (" + sw.version_str + " )";
 #else
@@ -779,8 +1061,6 @@ int main(int argc, char const *argv[]) {
       }
 
       shellui_log("Game ContainerScene: %p", Game);
-
-      OnRender_orig = (void(*)(MonoObject*)) DetourFunction(Get_Address_of_Method(pui_img, "Sce.PlayStation.PUI", "Application", "Update", 0), (void*)&OnRender_Hook);
   }
 
   // System.Reflection.RuntimeAssembly.GetManifestResourceStream
@@ -795,14 +1075,19 @@ int main(int argc, char const *argv[]) {
     shellui_log("Kstuff Paused, resuming kstuff");
     pause_resume_kstuff(NOT_PAUSED, false);
     unlink("/system_tmp/kstuff_paused");
+
+    while(sceKernelMprotect(&buz, sizeof(buz), PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+        klog_puts("sceKernelMprotect failed, retrying...");
+        sleep(1);
+    }
   }
 
   has_hv_bypass = (sceKernelMprotect( & buz[0], 100, 0x7) == 0);
 
-  //SimpleHTTPServer server(1304, "/");
-  //server.start();
-
   Patch_Main_thread_Check(image_core);
+
+  
+  OnRender_orig = (void(*)(MonoObject*)) DetourFunction(Get_Address_of_Method(pui_img, "Sce.PlayStation.PUI", "Application", "Update", 0), (void*)&OnRender_Hook);
 
 #if 0
     Orig_AppInstUtilInstallByPackage = (int (*)(MonoString * uri, MonoString * ex_uri, MonoString * playgo_scenario_id, MonoString * content_id, MonoString * content_name, MonoString * icon_url, uint32_t slot, bool is_playgo_enabled, MonoObject * pkg_info, MonoArray * languages, MonoArray * playgo_scenario_ids, MonoArray * content_ids)) DetourFunction(Get_Address_of_Method(AppInstallUtil_img, "Sce.Vsh", "AppInstUtilWrapper", "_AppInstUtilInstallByPackage", 12), (void*)&AppInstUtilInstallByPackage_Hook);
@@ -810,9 +1095,13 @@ int main(int argc, char const *argv[]) {
 		notify("Failed to hook AppInstUtilInstallByPackage");
 		return -1;
 	}
+
+	sceAppInstUtilInstallByPackage_orig = (int (*)(MetaInfo * arg1, SceAppInstallPkgInfo * pkg_info, PlayGoInfo * arg2)) DetourFunction((uintptr_t)sceAppInstUtilInstallByPackage, (void*)&sceAppInstUtilInstallByPackage_hook);
+    if (!sceAppInstUtilInstallByPackage_orig) {
+        notify("Failed to detour sceAppInstUtilInstallByPackage");
+        return -1;
+    }
 #endif
-
-
     if(sceRegMgrGetInt) {
       sceRegMgrGetInt = (int( * )(long, int * )) DetourFunction((uintptr_t)sceRegMgrGetInt, (void *)&sceRegMgrGetInt_hook);
       if (!sceRegMgrGetInt) {
@@ -825,6 +1114,14 @@ int main(int argc, char const *argv[]) {
       return -1;
 	}
 
+#if 1
+	read_orig = (ssize_t(*)(int fd, void *buf, size_t count)) DetourFunction((uintptr_t)read, (void*)&read_hook);
+    if (!read_orig) {
+      notify("Failed to detour read func");
+      return -1;
+	}
+#endif
+
     void* createJson_addr =  DetourFunction(Get_Address_of_Method(ReactNativeShellAppReactNativeShellApp_img, "ReactNative.Modules.ShellUI.HomeUI", "OptionMenu", "createJson", 8), (void * )&createJson_hook);
     createJson = (void( * )(MonoObject *, MonoObject * , MonoString * , MonoString * , MonoString * , MonoString * , MonoString * , MonoObject * , bool)) createJson_addr;
     if (!createJson_addr) {
@@ -836,6 +1133,11 @@ int main(int argc, char const *argv[]) {
     if (!LaunchApp_orig) {
       shellui_log("Failed to detour Func Set -2");
      // return -1;
+    }
+
+    void* KillAppWithReason_orig = DetourFunction(Get_Address_of_Method(lnc_img, "Sce.Vsh.LncUtil", "LncUtilWrapper","KillAppWithReason", 2), (void *)&KillAppWithReason_Hook);
+    if (!KillAppWithReason_orig) {
+      notify("Failed to detour KillAppWithReason");
     }
 
     UpdateImposeStatusFlag_Orig = (void( * )(MonoObject * , MonoObject * )) DetourFunction(Get_Address_of_Method(AppSystem_img, appsystem_namespace.c_str(), layer_manager.c_str(), update_impose_flag.c_str(), 2), (void * )&UpdateImposeStatusFlag_hook);
@@ -943,6 +1245,8 @@ int main(int argc, char const *argv[]) {
     shellui_log("Performed Magic");
 
     hooked = true;
+    pthread_t thread_id;
+    scePthreadCreate(&thread_id, nullptr, dialogue_thread, nullptr, "dialogue_thread");
 
     // file to let the main daemon know that its finished loading
     touch_file("/system_tmp/toolbox_online");

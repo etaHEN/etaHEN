@@ -23,12 +23,26 @@ along with this program; see the file COPYING. If not, see
 #include <cstdint>
 #include <iostream>
 #include "webserver.hpp"
+#include <chrono>
 
 #include <unistd.h>
 #include <util.hpp>
 
-extern "C" long ptr_syscall = 0;
+#define u32 uint32_t
+#define s32 int32_t
 
+
+
+extern "C" {
+    long ptr_syscall = 0;
+   
+    int sceKernelLoadStartModule(const char *moduleFileName, int args, const void *argp, int flags, void *opt, int *pRes) ;
+    int sceKernelDlsym(int handle, const char *symbol, void **addrp);
+
+    s32 sceGnmSubmitAndFlipCommandBuffersForWorkload(
+	u32 workload, u32 count, u32* dcb_gpu_addrs[], u32* dcb_sizes_in_bytes, u32* ccb_gpu_addrs[],
+	u32* ccb_sizes_in_bytes, u32 vo_handle, u32 buf_idx, u32 flip_mode, u32 flip_arg);
+}
 void __syscall() {
   asm(".intel_syntax noprefix\n"
       "  mov rax, rdi\n"
@@ -56,6 +70,8 @@ extern "C" {
     int sceKernelClockGettime(int clockId, OrbisKernelTimespec* tp);
 }
 
+static int frame_count = 0;
+
 bool touch_file(const char* destfile) {
     static constexpr int FLAGS = 0777;
     int fd = open(destfile, O_WRONLY | O_CREAT | O_TRUNC, FLAGS);
@@ -66,71 +82,110 @@ bool touch_file(const char* destfile) {
     return false;
 }
 
+ typedef struct {
+   int32_t type;             // 0x00
+   int32_t req_id;           // 0x04
+   int32_t priority;         // 0x08
+   int32_t msg_id;           // 0x0C
+   int32_t target_id;        // 0x10
+   int32_t user_id;          // 0x14
+   int32_t unk1;             // 0x18
+   int32_t unk2;             // 0x1C
+   int32_t app_id;           // 0x20
+   int32_t error_num;        // 0x24
+   int32_t unk3;             // 0x28
+   char use_icon_image_uri;  // 0x2C
+   char message[1024];       // 0x2D
+   char uri[1024];           // 0x42D
+   char unkstr[1024];        // 0x82D
+ } OrbisNotificationRequest; // Size = 0xC30
 
-void notify(const char* text, ...)
+ extern "C" int sceKernelSendNotificationRequest(int userId, OrbisNotificationRequest *request, size_t requestSize, int flags);
+
+void printf_notification(const char* fmt, ...)
 {
-    OrbisNotificationRequest req;
-    memset(&req, 0, sizeof(OrbisNotificationRequest));
-    char buff[1024];
+	OrbisNotificationRequest noti_buffer{};
 
-    // printf("******************** text: %s\n", text);
+	va_list args{};
+	va_start(args, fmt);
+	int len = vsnprintf(noti_buffer.message, sizeof(noti_buffer.message), fmt, args);
+	va_end(args);
 
-    va_list args{};
-    va_start(args, text);
-    vsnprintf(buff, sizeof(buff), text, args);
-    va_end(args);
-
-    req.type = 0;
-    req.unk3 = 0;
-    req.use_icon_image_uri = 1;
-    req.target_id = -1;
-    strncpy(req.uri, "cxml://psnotification/tex_icon_system", 38);
-    strncpy(req.message, buff, 1024);
-
-    game_log("Sending notification: %s", req.message);
-    sceKernelSendNotificationRequest(0, &req, sizeof(req), 0);
+	// these dont do anything currently
+	// that or the structure has changed
+	// lets just copy messages for now
+	/*
+	noti_buffer.type = 0;
+	noti_buffer.unk3 = 0;
+	noti_buffer.use_icon_image_uri = 0;
+	noti_buffer.target_id = -1;
+	*/
+	// trim newline
+	if (noti_buffer.message[len - 1] == '\n')
+	{
+		noti_buffer.message[len - 1] = '\0';
+	}
+	sceKernelSendNotificationRequest(0, (OrbisNotificationRequest*)&noti_buffer, sizeof(noti_buffer), 0);
 }
 
-#define KERNEL_DLSYM(handle, sym) \
-    (*(void**)&sym=(void*)kernel_dynlib_dlsym(-1, handle, #sym))
+void CalculateAndPrintFPS() {
+	auto current_time = std::chrono::high_resolution_clock::now();
+	static auto last_time = current_time;
+	auto delta = std::chrono::duration<double>(current_time - last_time).count();
+	
+	frame_count++;
+
+	if (delta >= 1.0) {
+		double fps = frame_count / delta;
+		// Send FPS
+		printf_notification("FPS %.2f", fps);
+
+		frame_count = 0;
+		last_time = current_time;
+	}
+}
+
+s32 (*sceGnmSubmitAndFlipCommandBuffersForWorkload_orig)(
+	u32 workload, u32 count, u32* dcb_gpu_addrs[], u32* dcb_sizes_in_bytes, u32* ccb_gpu_addrs[],
+	u32* ccb_sizes_in_bytes, u32 vo_handle, u32 buf_idx, u32 flip_mode, u32 flip_arg) = nullptr;
+
+s32 sceGnmSubmitAndFlipCommandBuffersForWorkload_hook(
+	u32 workload, u32 count, u32* dcb_gpu_addrs[], u32* dcb_sizes_in_bytes, u32* ccb_gpu_addrs[],
+	u32* ccb_sizes_in_bytes, u32 vo_handle, u32 buf_idx, u32 flip_mode, u32 flip_arg) {
+	//printf("sceGnmSubmitAndFlipCommandBuffersForWorkload_hook called!\n");
+	CalculateAndPrintFPS();
+	int ret = sceGnmSubmitAndFlipCommandBuffersForWorkload_orig(
+		workload, count, dcb_gpu_addrs, dcb_sizes_in_bytes, ccb_gpu_addrs,
+		ccb_sizes_in_bytes, vo_handle, buf_idx, flip_mode, flip_arg);
+    if(ret == 0x80D11081){
+        printf("sceGnmSubmitAndFlipCommandBuffersForWorkload returned BUSY\n");
+    }
+	else
+    if(ret != 0) {
+		printf("sceGnmSubmitAndFlipCommandBuffersForWorkload returned error: %d\n", ret);
+	}
+
+	return ret;
+
+}
 
 int main(int argc, char const* argv[]) {
     //OrbisKernelSwVersion sw;
+    char buff[256];
+    klog_puts("============== fps_elf Started =================");
+	printf_notification("fps_counter loaded!");
 
-	notify("fps_elf loaded!");
+    while(sceKernelMprotect(&buff, sizeof(buff), PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+        klog_puts("sceKernelMprotect failed, retrying...");
+        sleep(1);
+    }
 
-    pid_t pid = getpid();
-    uintptr_t old_authid = set_ucred_to_debugger();
-
-
-    int libkernelsys_handle = get_module_handle(pid, "libkernel.sprx");
-
-    KERNEL_DLSYM(libkernelsys_handle, sceKernelDebugOutText);
-    KERNEL_DLSYM(libkernelsys_handle, sceKernelMkdir);
-    KERNEL_DLSYM(libkernelsys_handle, scePthreadCreate);
-    KERNEL_DLSYM(libkernelsys_handle, sceKernelMprotect);
-    KERNEL_DLSYM(libkernelsys_handle, sceKernelSendNotificationRequest);
-    KERNEL_DLSYM(libkernelsys_handle, sceKernelGetProsperoSystemSwVersion);
-    KERNEL_DLSYM(libkernelsys_handle, sceKernelGetAppInfo);
-    KERNEL_DLSYM(libkernelsys_handle, sceKernelGetProcessName);
-
-    game_log("Starting game ELF ....");
-
-    KERNEL_DLSYM(libSceKernelHandle, ioctl);
-
-    // get the yscall address for the ioctl hook
-    static __attribute__((used)) long getpid = 0;
-    KERNEL_DLSYM(libSceKernelHandle, getpid);
-    ptr_syscall = getpid;
-    ptr_syscall += 0xa; // jump directly to the syscall instruction
-
-    // file to let the main daemon know that its finished loading
-    touch_file("/system_tmp/fps_online");
-    set_proc_authid(pid, old_authid);
+    klog_printf("sceGnmSubmitAndFlipCommandBuffersForWorkload addr: %p\n", &sceGnmSubmitAndFlipCommandBuffersForWorkload);
+    sceGnmSubmitAndFlipCommandBuffersForWorkload_orig = (decltype(sceGnmSubmitAndFlipCommandBuffersForWorkload_orig))DetourFunction((uint64_t)&sceGnmSubmitAndFlipCommandBuffersForWorkload, (void*)&sceGnmSubmitAndFlipCommandBuffersForWorkload_hook);
 
     while (true) {
         game_log("sleeping ....");
-        sleep(0x100000);
+        sleep(0x10000);
     }
     return 0;
 

@@ -516,6 +516,7 @@ public:
 
     return true;
 }
+
 }; // namespace IPC
 
 #endif // IPC_HEADER_H
