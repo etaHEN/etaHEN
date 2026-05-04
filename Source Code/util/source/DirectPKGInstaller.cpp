@@ -175,12 +175,27 @@ void *runDirectPKGInstaller(void *args) {
 
       etaHEN_log("DPI: URL Received: %s", url);
 
+      const char* content_name = json_getPropertyValue(my_json, "content_name");
+      if (content_name) etaHEN_log("DPI: content_name: %s", content_name);
+
+      const char* content_id = json_getPropertyValue(my_json, "content_id");
+      if (content_id) etaHEN_log("DPI: content_id: %s", content_id);
+      
+      const char* playgo_scenario_id = json_getPropertyValue(my_json, "playgo_scenario_id");
+      if (playgo_scenario_id) etaHEN_log("DPI: playgo_scenario_id: %s", playgo_scenario_id);
+      
+      const char* ex_uri = json_getPropertyValue(my_json, "ex_uri");
+      if (ex_uri) etaHEN_log("DPI: ex_uri: %s", ex_uri);
+      
+      const char* icon_url = json_getPropertyValue(my_json, "icon_url");
+      if (icon_url) etaHEN_log("DPI: icon_url: %s", icon_url);
+
       MetaInfo arg1 = {.uri = url,
-                       .ex_uri = "",
-                       .playgo_scenario_id = "",
-                       .content_id = "",
-                       .content_name = "etaHEN DPI",
-                       .icon_url = ""};
+                       .ex_uri = ex_uri ? ex_uri : "",
+                       .playgo_scenario_id = playgo_scenario_id ? playgo_scenario_id : "",
+                       .content_id = content_id ? content_id : "",
+                       .content_name = content_name ? content_name : "etaHEN DPI",
+                       .icon_url = icon_url ? icon_url : ""};
 
       int num = sceAppInstUtilInstallByPackage(&arg1, &pkg_info, &arg3);
       if (num == 0) {
@@ -827,13 +842,22 @@ static enum MHD_Result dpiv2_on_request(void* cls, struct MHD_Connection* conn,
                 "    .success { color: #4CAF50; font-weight: bold; }\n"
                 "    .error { color: #f44336; font-weight: bold; }\n"
                 "    .success-box { background-color: #e8f5e9; border: 1px solid "
-                "#4CAF50; padding: 10px; border-radius: 5px; }\n"
+                "#4CAF50; padding: 10px; border-radius: 5px; margin-top: 15px; }\n"
                 "    .error-box { background-color: #ffebee; border: 1px solid "
-                "#f44336; padding: 10px; border-radius: 5px; }\n"
+                "#f44336; padding: 10px; border-radius: 5px; margin-top: 15px; }\n"
                 "    .note { font-size: 0.9em; color: #666; margin-top: 5px; "
                 "font-style: italic; }\n"
                 "    .maintenance { margin-top: 30px; border-top: 1px solid #eee; "
                 "padding-top: 20px; }\n"
+                "    .btn-row { display: flex; gap: 10px; margin-top: 15px; }\n"
+                "    .btn-row .btn { flex: 1; text-align: center; }\n"
+                "    .advanced-toggle { background: #666; font-size: 14px; }\n"
+                "    .advanced-toggle:hover { background: #555; }\n"
+                "    .advanced-options { display: none; margin-top: 15px; margin-bottom: 15px; padding: 15px; background: #f9f9f9; border-radius: 5px; border: 1px dashed #ccc; }\n"
+                "    .advanced-options.visible { display: block; }\n"
+                "    .advanced-options h4 { margin-top: 0; color: #666; font-size: 14px; }\n"
+                "    .advanced-options label { font-size: 13px; color: #555; }\n"
+                "    .advanced-options input { font-size: 13px; }\n"
                 "  </style>\n"
                 "</head>\n"
                 "<body>\n"
@@ -851,8 +875,33 @@ static enum MHD_Result dpiv2_on_request(void* cls, struct MHD_Connection* conn,
                 "        <input type='text' id='url' name='url' "
                 "placeholder='http://xxx.xxx.xx.xx/game.pkg'>\n"
                 "      </div>\n"
-                "      <button type='submit' class='btn'>Upload and "
-                "Install</button>\n"
+                "      <div class='btn-row'>\n"
+                "        <button type='button' class='btn advanced-toggle' id='advancedToggle'>Show Advanced Options</button>\n"
+                "        <button type='submit' class='btn'>Upload and Install</button>\n"
+                "      </div>\n"
+                "      <div class='advanced-options' id='advancedOptions'>\n"
+                "        <h4>Advanced Options</h4>\n"
+                "        <div class='form-group'>\n"
+                "          <label for='content_name'>Content Name:</label>\n"
+                "          <input type='text' id='content_name' name='content_name' placeholder='My Game (optional)'>\n"
+                "        </div>\n"
+                "        <div class='form-group'>\n"
+                "          <label for='content_id'>Content ID:</label>\n"
+                "          <input type='text' id='content_id' name='content_id' placeholder='UP0001-CUSA00001_00-... (optional)'>\n"
+                "        </div>\n"
+                "        <div class='form-group'>\n"
+                "          <label for='playgo_scenario_id'>PlayGo Scenario ID:</label>\n"
+                "          <input type='text' id='playgo_scenario_id' name='playgo_scenario_id' placeholder='(optional)'>\n"
+                "        </div>\n"
+                "        <div class='form-group'>\n"
+                "          <label for='ex_uri'>Extra URI:</label>\n"
+                "          <input type='text' id='ex_uri' name='ex_uri' placeholder='(optional)'>\n"
+                "        </div>\n"
+                "        <div class='form-group'>\n"
+                "          <label for='icon_url'>Icon URL:</label>\n"
+                "          <input type='text' id='icon_url' name='icon_url' placeholder='http://xxx.xxx.xx.xx/icon.png (optional)'>\n"
+                "        </div>\n"
+                "      </div>\n"
                 "    </form>\n"
                 "    <div class='progress-container' id='progressContainer'>\n"
                 "      <div class='progress'>\n"
@@ -968,6 +1017,11 @@ static enum MHD_Result dpiv2_on_request(void* cls, struct MHD_Connection* conn,
                 "            \n"
                 "            fileInput.value = '';\n"
                 "            urlInput.value = '';\n"
+                "            document.getElementById('content_name').value = '';\n"
+                "            document.getElementById('content_id').value = '';\n"
+                "            document.getElementById('playgo_scenario_id').value = '';\n"
+                "            document.getElementById('ex_uri').value = '';\n"
+                "            document.getElementById('icon_url').value = '';\n"
                 "            \n"
                 "            progressBar.style.width = '0%';\n"
                 "            progressInfo.textContent = '0%';\n"
@@ -1008,6 +1062,18 @@ static enum MHD_Result dpiv2_on_request(void* cls, struct MHD_Connection* conn,
                 "      window.uploadStartTime = new Date().getTime();\n"
                 "      xhr.open('POST', '/upload');\n"
                 "      xhr.send(formData);\n"
+                "    });\n"
+                "    \n"
+                "    document.getElementById('advancedToggle').addEventListener('click', function() {\n"
+                "      var opts = document.getElementById('advancedOptions');\n"
+                "      var btn = document.getElementById('advancedToggle');\n"
+                "      if (opts.classList.contains('visible')) {\n"
+                "        opts.classList.remove('visible');\n"
+                "        btn.textContent = 'Show Advanced Options';\n"
+                "      } else {\n"
+                "        opts.classList.add('visible');\n"
+                "        btn.textContent = 'Hide Advanced Options';\n"
+                "      }\n"
                 "    });\n"
                 "    \n"
                 "    "
@@ -1101,9 +1167,39 @@ static enum MHD_Result dpiv2_on_request(void* cls, struct MHD_Connection* conn,
         const char* url_value = post_data_val(req->data, "url");
         int install_result = -1;
 
+        auto applyMetaInfo = [&]() {
+            const char* content_name = post_data_val(req->data, "content_name");
+            const char* content_id = post_data_val(req->data, "content_id");
+            const char* playgo_scenario_id = post_data_val(req->data, "playgo_scenario_id");
+            const char* ex_uri = post_data_val(req->data, "ex_uri");
+            const char* icon_url = post_data_val(req->data, "icon_url");
+
+            if (content_name && strlen(content_name) > 0) {
+                arg1.content_name = content_name;
+                etaHEN_log("DPIv2: content_name: %s", content_name);
+            }
+            if (content_id && strlen(content_id) > 0) {
+                arg1.content_id = content_id;
+                etaHEN_log("DPIv2: content_id: %s", content_id);
+            }
+            if (playgo_scenario_id && strlen(playgo_scenario_id) > 0) {
+                arg1.playgo_scenario_id = playgo_scenario_id;
+                etaHEN_log("DPIv2: playgo_scenario_id: %s", playgo_scenario_id);
+            }
+            if (ex_uri && strlen(ex_uri) > 0) {
+                arg1.ex_uri = ex_uri;
+                etaHEN_log("DPIv2: ex_uri: %s", ex_uri);
+            }
+            if (icon_url && strlen(icon_url) > 0) {
+                arg1.icon_url = icon_url;
+                etaHEN_log("DPIv2: icon_url: %s", icon_url);
+            }
+        };
+
         if (url_value && strlen(url_value) > 0) {
             etaHEN_log("Received URL: %s", url_value);
             arg1.uri = url_value;
+            applyMetaInfo();
 
             install_result = sceAppInstUtilInstallByPackage(&arg1, &pkg_info, &arg3);
 
@@ -1141,6 +1237,8 @@ static enum MHD_Result dpiv2_on_request(void* cls, struct MHD_Connection* conn,
                     std::string("etaHEN DPIv2 | " + std::string(req->orig_filename));
                 arg1.content_name =
                     req->orig_filename ? tempstr.c_str() : "etaHEN DPIv2";
+
+                applyMetaInfo();
 
                 const char* display_filename =
                     req->orig_filename ? req->orig_filename : temp_path;
