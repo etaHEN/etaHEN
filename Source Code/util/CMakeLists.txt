@@ -87,13 +87,21 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     microhttpd
     psl          # For PSL (Public Suffix List) functions
     zstd         # For ZSTD compression support
-    crypto       # For OpenSSL crypto functions (EVP_*, MD5_*, DES_*)
-    ssl          # For additional SSL functions
+    wolfssl      # wolfSSL (TLS backend for libcurl, matches lib/libcurl.a)
 )
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Add post-build command
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} --remove-section .debug_info --remove-section .debug_abbrev --remove-section .debug_line --remove-section .debug_str --remove-section .debug_loc --remove-section .debug_aranges --remove-section .debug_ranges --remove-section .debug_pubnames --remove-section .debug_pubtypes --remove-section .debug_frame --strip-unneeded $<TARGET_FILE:${PROJECT_NAME}>
     COMMENT "Stripping debugging information from ${PROJECT_NAME}.elf"
+)
+
+# Ensure elfldr is available for .incbin embedding (common_utils.c references assets/elfldr.elf)
+add_custom_command(TARGET ${PROJECT_NAME} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/lib/elfldr.bin
+        ${CMAKE_BINARY_DIR}/assets/elfldr.elf
+    COMMENT "Copying elfldr.bin -> assets/elfldr.elf for .incbin embedding"
 )
 
